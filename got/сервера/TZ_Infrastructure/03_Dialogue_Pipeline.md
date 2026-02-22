@@ -2138,6 +2138,236 @@ CRISIS:                                        ~5ms
 
 ---
 
+### Scaling Architecture: 10K → 100K → 500K
+
+#### Проблема: Celery — архитектурный тупик
+
+При >10K MAU Celery workers (sync blocking) не масштабируются:
+
+```
+Celery worker = 1 Python-процесс блокируется на LLM API 3-5 сек.
+Для 130 RPS × 4s = нужно 520 workers.
+520 workers × 100 MB RAM = 52 GB только на воркеры.
++ OS overhead + Redis connections = непрактично.
+```
+
+**Решение: переход на AsyncIO (Фаза 2).** Один процесс держит тысячи concurrent I/O-bound запросов.
+
+#### Три горизонта масштабирования
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ГОРИЗОНТ 1: MVP → 10K MAU                                     │
+│  Архитектура: Celery workers, Docker Compose, 1 shard           │
+│                                                                 │
+│  LLM Orchestrator: 1 × CPX21, 4-8 workers                      │
+│  Agents: по 1 инстансу каждый                                   │
+│  Dubai Shard: 1 × 256 GB                                        │
+│  Deployment: Docker Compose + ansible                           │
+│  Peak RPS: ~2-3 msg/sec                                         │
+│  Стоимость: ~$2,000/мес                                         │
+├─────────────────────────────────────────────────────────────────┤
+│  ГОРИЗОНТ 2: 10K → 100K MAU                                     │
+│  Архитектура: AsyncIO, Kubernetes, multi-shard                  │
+│                                                                 │
+│  КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Celery → FastAPI + httpx (async)           │
+│  Один pod обрабатывает 50+ concurrent запросов (I/O bound)      │
+│                                                                 │
+│  LLM Orchestrator: 5-15 pods (auto-scale by queue depth)        │
+│  Agents: 3-5 реплик каждый, за Load Balancer                    │
+│  Dubai Shards: 3-5 × 256 GB (routing по user_id)                │
+│  Redis: Cluster (3 nodes) вместо single                         │
+│  Deployment: Kubernetes (Hetzner k3s или managed)               │
+│  Peak RPS: ~15-50 msg/sec                                       │
+│  Стоимость: ~$8,000-15,000/мес                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  ГОРИЗОНТ 3: 100K → 500K MAU                                    │
+│  Архитектура: AsyncIO, K8s multi-cluster, собственные модели    │
+│                                                                 │
+│  LLM Orchestrator: 20-60 pods, multi-AZ                         │
+│  КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Собственная TTS (StyleTTS2/Coqui)         │
+│    → ElevenLabs только для premium tier                         │
+│  КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Fine-tuned LLM для Level 1 (70% трафика)  │
+│    → DeepSeek/Gemini только для Level 2-3                       │
+│  КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Semantic Cache для повторяющихся запросов  │
+│    → -40% LLM API cost                                          │
+│  Dubai Shards: 10-25 × 256 GB                                   │
+│  Consultant: собственный fine-tuned fashion LLM                 │
+│  Redis: Cluster (6+ nodes)                                      │
+│  Deployment: K8s multi-cluster (Dubai + Hetzner)                │
+│  Peak RPS: 50-200 msg/sec                                       │
+│  Стоимость: ~$30,000-60,000/мес                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Celery → AsyncIO: план миграции
+
+```python
+# ГОРИЗОНТ 1 (MVP): Celery worker (текущий)
+@celery_app.task(queue='dialogue_queue', time_limit=45)
+def generate_response(user_id, message, ...):
+    # blocking: каждый шаг ждёт предыдущий
+    mood = redis_wait(...)
+    embedding = embedding_client.embed_query(message)  # blocking 50ms
+    response = call_llm(...)  # blocking 3-5s
+    return result
+
+# ГОРИЗОНТ 2: FastAPI + httpx (async)
+@app.post("/dialogue")
+async def generate_response(req: DialogueRequest):
+    # non-blocking: I/O-bound операции не блокируют event loop
+    mood, context = await asyncio.gather(
+        redis_wait_async(f"mood:{req.user_id}"),
+        redis_wait_async(f"context:{req.user_id}"),
+    )
+    embedding, persona = await asyncio.gather(
+        embedding_client.embed_async(req.message),
+        persona_agent.get_async(req.user_id, mood, ...),
+    )
+    response = await call_llm_async(provider, system_prompt, messages)
+    return result
+
+# Один FastAPI pod (4 uvicorn workers × 1000 concurrent connections)
+# = 4000 concurrent I/O waits
+# = ~200 req/sec sustained при 4s avg latency
+# vs Celery: 4 workers = ~1 req/sec
+# Выигрыш: 200× throughput на тот же RAM
+```
+
+**Миграция без downtime:**
+1. Запустить FastAPI-сервис параллельно с Celery
+2. App Server маршрутизирует 5% → FastAPI, 95% → Celery (canary)
+3. Постепенно: 5% → 25% → 50% → 100%
+4. Выключить Celery
+
+#### Разделение очередей по complexity
+
+```
+                    ┌──── Level 1 (Simple, 80%) ──── fast_queue ────→ 10 pods
+                    │                                                 cheap LLM
+App Server ────→ Router                                              (DeepSeek lite)
+                    │
+                    ├──── Level 2 (Contextual, 15%) ── medium_queue → 3 pods
+                    │                                                 full LLM
+                    │
+                    ├──── Level 3 (Complex, 5%) ────── heavy_queue ──→ 2 pods
+                    │                                                 full LLM
+                    │                                                 + expansion
+                    └──── Recognition ──────────────── recon_queue ──→ 2 pods
+                                                                     long timeout
+```
+
+**Зачем:** Level 1 запросы (80%) не должны стоять в очереди за Level 3 (который занимает 15 сек). Разные queue → разные SLO:
+
+| Queue | SLO p95 | Workers/Pods | LLM Model | Budget per req |
+|-------|---------|-------------|-----------|---------------|
+| fast_queue | <4s | 10 (auto: 5-20) | DeepSeek-lite / Gemini Flash | $0.001 |
+| medium_queue | <8s | 3 (auto: 2-6) | DeepSeek-chat | $0.003 |
+| heavy_queue | <20s | 2 (auto: 1-4) | DeepSeek-chat + expansion | $0.01 |
+| recon_queue | <30s | 2 (fixed) | Ximilar + Gemini | $0.02 |
+
+**Model routing:** Level 1 → дешёвая модель (Gemini Flash $0.075/1M, vs DeepSeek $0.14/1M). Экономия 40% на 80% трафика.
+
+#### Auto-scaling triggers
+
+```yaml
+# Kubernetes HPA (Horizontal Pod Autoscaler)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: llm-orchestrator-fast
+spec:
+  minReplicas: 5
+  maxReplicas: 30
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: redis_queue_length
+          selector:
+            matchLabels:
+              queue: fast_queue
+        target:
+          type: AverageValue
+          averageValue: 10   # scale up если > 10 задач на pod
+    - type: Pods
+      pods:
+        metric:
+          name: http_request_duration_p95
+        target:
+          type: AverageValue
+          averageValue: 4000  # scale up если p95 > 4s
+```
+
+**Backpressure (защита от перегрузки):**
+
+```python
+# В App Server (middleware)
+async def backpressure_check(queue_name: str) -> bool:
+    queue_len = await redis.llen(queue_name)
+    if queue_len > QUEUE_HIGH_WATERMARK:  # 200 для fast, 50 для heavy
+        # Graceful degrade: не HTTP 429, а мгновенный ответ
+        return True  # → "Сейчас много запросов, дай мне секунду..."
+    return False
+```
+
+#### Cost optimization для 100K+ MAU
+
+| Оптимизация | Экономия | Когда |
+|-------------|---------|-------|
+| **Model routing** (cheap для Level 1) | -40% LLM cost | Горизонт 2 |
+| **Semantic cache** (похожие запросы → кеш) | -25% LLM cost | Горизонт 2 |
+| **Собственная TTS** (StyleTTS2 для фраз <50 слов) | -70% TTS cost | Горизонт 3 |
+| **Fine-tuned small LLM** для Level 1 | -60% LLM cost | Горизонт 3 |
+| **halfvec** pgvector | -50% shard RAM | Горизонт 2 |
+| **Cold storage** для embeddings >1 year | -30% shard RAM | Горизонт 2 |
+
+```
+Финансовая модель (примерная):
+
+                    10K MAU    50K MAU    100K MAU   500K MAU
+LLM API             $800       $4,000     $6,000*    $15,000*
+TTS (ElevenLabs)    $300       $2,000     $2,000**   $3,000**
+Embeddings          $25        $170       $350       $1,500
+Infrastructure      $1,000     $5,000     $10,000    $25,000
+──────────────────────────────────────────────────────────
+Total               $2,125     $11,170    $18,350    $44,500
+Per MAU             $0.21      $0.22      $0.18      $0.09
+
+*  С model routing + semantic cache
+** С собственной TTS для 80% фраз
+```
+
+**Ключевой insight:** cost per MAU **снижается** при масштабировании (economies of scale) — особенно за счёт собственной TTS и fine-tuned моделей.
+
+#### Capacity матрица: сколько чего нужно
+
+```
+                    10K MAU    50K MAU    100K MAU   500K MAU
+Peak RPS            ~3         ~15        ~30        ~150
+
+Orchestrator pods   2          8          15         50
+  (async, Г2+)
+
+Mood Agent pods     1          2          3          8
+Context Agent pods  1          1          2          4
+Persona Agent pods  1          1          2          4
+Voice Server pods   1          3          5          15
+
+Dubai Shards        1          3          5          25
+Shard Replicas      1          3          5          25
+
+Redis nodes         1          3          3          6
+
+Embedding API RPS   1          5          10         50
+LLM API RPS         3          15         30         150
+TTS concurrent      2          10         15***      50***
+
+*** С собственной TTS: 80% local, 20% ElevenLabs
+```
+
+---
+
 ## 15. CONTEXT AGENT (новый)
 
 ### Информация
