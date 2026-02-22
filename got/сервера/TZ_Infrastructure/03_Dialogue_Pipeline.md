@@ -1515,6 +1515,7 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
     episodes = apply_density_cap(episodes, recent_messages)
     
     # 7a. Query Expansion для Level 2+ (Contextual/Complex)
+    query_expansion_used = False
     if query_level >= 2 and len(episodes) < 3:
         # Мало результатов по прямому запросу → разбить на подзапросы
         sub_queries = expand_query(message, recent_messages, user_profile)
@@ -1523,11 +1524,24 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
             extra = hybrid_search(shard_conn, user_id, sq_embedding, sq,
                                   top_k=5, similarity_threshold=sim_threshold)
             episodes = merge_episodes(episodes, extra, max_total=15)
+            # merge_episodes():
+            #   1. Дедупликация по message_id (если один эпизод найден в двух подзапросах)
+            #   2. При дубликате: оставить с БОЛЬШИМ final_score
+            #   3. Объединённый список сортируется по final_score DESC
+            #   4. Обрезка до max_total (15)
+        query_expansion_used = True
     
-    # 7b. Agentic Loop для Level 3 (Complex, Фаза 2)
-    #     Если после expansion всё ещё мало данных → LLM генерирует уточняющий вопрос
-    #     Для MVP: если Level 3 и episodes < 3 → добавить в situational_rules:
-    #     "Недостаточно данных для сложного запроса. Уточни у юзера."
+    # 7b. Level 3 MVP fallback: если сложный запрос и мало данных → уточнить
+    if query_level >= 3 and len(episodes) < 3:
+        context_pack_extra_rules = [
+            "Запрос сложный, но данных для полного ответа недостаточно. "
+            "НЕ угадывай. Разбей задачу на части и уточни у юзера: "
+            "что именно приоритетно, какие детали важны. "
+            "Пример: «Давай по шагам — сначала определим стиль, потом соберём образы?»"
+        ]
+    else:
+        context_pack_extra_rules = []
+    #     Фаза 2: Agentic Loop — несколько итераций поиска + промежуточная валидация.
     
     # 8. Определить intent и маршрутизация
     context = build_context_pack(
@@ -1540,6 +1554,7 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
         referenced_artifact=referenced_artifact,
         recent_artifacts=recent_artifacts,
         persona_directive=persona_output['persona_directive'],
+        extra_situational_rules=context_pack_extra_rules,
     )
     intent = classify_intent(message, context)
     
@@ -1613,6 +1628,7 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
         "render_hints": persona_output.get("render_hints"),
         "intent": intent.type,
         "query_level": query_level,
+        "query_expansion_used": query_expansion_used,
         "duration_ms": total_ms,
         "model_used": llm_response.model,
     }
@@ -2488,7 +2504,7 @@ PERSONA_CONTRACT_VERSION=0.7.0
 ├── data/
 │   └── cultural_references.json  # Статичный registry
 ├── tests/
-│   └── test_golden.py            # 29 golden tests (блокируют деплой)
+│   └── test_golden.py            # 66 golden tests (GT-001..GT-042 + CT-01..CT-24, блокируют деплой)
 ├── scripts/
 │   ├── health-check.sh
 │   └── test-persona.sh

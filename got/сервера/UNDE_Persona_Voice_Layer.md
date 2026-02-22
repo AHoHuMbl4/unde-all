@@ -1112,7 +1112,12 @@ Persona Agent: 0ms к критическому пути
 
 ---
 
-## 17. Golden Tests (25 сценариев)
+## 17. Golden Tests (66 сценариев)
+
+Три группы:
+- **GT-001..GT-029** — Persona Agent unit tests (tone, stage, debouncing, overrides, concurrency)
+- **GT-030..GT-042** — Behavioral / Safety tests (crisis, body image, gaslighting, jailbreak, etc.)
+- **CT-01..CT-24** — Knowledge Logic Chain Tests (multi-hop, contradictions, sarcasm, security, complexity)
 
 ```python
 GOLDEN_TESTS = [
@@ -1562,7 +1567,7 @@ DEBUG_FIELDS = {
 | **Concurrency** | Per-user asyncio.Lock. Redis SETNX для multi-instance |
 | **Storage** | PostgreSQL (stage, blocks, daily_deltas) + Redis (idempotency, buffer, locks) |
 | **Observability** | Structured debug в каждом ответе: tone_reason, rules_applied/skipped, resolved_signals, blocked_by |
-| **Golden Tests** | 29 сценариев. Блокируют деплой |
+| **Golden Tests** | 66 сценариев (GT-001..GT-042 persona + CT-01..CT-24 knowledge logic). Блокируют деплой |
 | **Latency** | 15ms p95. 0ms к критическому пути |
 | **Fallback** | 50ms → warm-neutral, stage 0, hard bans included |
 | **Принцип** | Conservative wins. Близость строится, не назначается. Лучше нейтрально, чем неправильно |

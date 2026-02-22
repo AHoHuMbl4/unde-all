@@ -723,7 +723,7 @@ Tombstone Registry:
 *— voice_params теперь от Persona Agent (а не от Mood Agent напрямую). Зависимость: Mood → Persona (сенсор → актуатор)*
 *— Новые таблицы на Dubai Shard: relationship_stage, persona_temp_blocks, signal_daily_deltas*
 *— Async feedback loop: behavioral signals → SignalBuffer per exchange_id → conflict graph → conservative wins*
-*— persona_contract: версионируемый Python-пакет (major version check), 29 golden tests*
+*— persona_contract: версионируемый Python-пакет (major version check), 66 golden tests (GT + CT)*
 *— Обновлены: LLM Orchestrator (pipeline, env, clients), Voice Server, Data Flow, мониторинг, деплой, безопасность*
 *
 *Обновлено: 2026-02-15 — v6.1. Интеграция решений из UNDE_Infrastructure_BD и UNDE_Smart_Context_Architecture:*
