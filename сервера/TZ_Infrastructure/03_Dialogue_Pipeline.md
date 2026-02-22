@@ -1151,6 +1151,13 @@ def validate_message_input(user_id, message, voice_signals):
 - Если не уверен — лучше промолчать, чем вставить неестественно.
 - При запросе «что ты знаешь обо мне» — отвечай тепло и обобщённо,
   как друг. НЕ перечисляй технические поля и confidence scores.
+- Если юзер ссылается на прошлую рекомендацию («помнишь то платье?»,
+  «как в тот раз»), но ты не нашёл её в контексте — НЕ выдумывай.
+  Честно спроси: «Напомни, что именно понравилось? Бренд или цвет —
+  и я быстро найду.» Это лучше, чем угадать неправильно.
+- Если запрос содержит много условий/исключений — перечисли их обратно
+  юзеру для подтверждения перед поиском: «Итак: вечер, не чёрное,
+  не Zara, без синтетики — правильно?»
 
 [User Knowledge — guaranteed facts]
 body_params/size: M (confidence: 0.95, instant_pattern)
@@ -1425,8 +1432,11 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
     relationship_stage = shard_conn.get_relationship_stage(user_id)
     
     # 1b. Quick intent (lightweight, <1ms) — для Persona Agent tone selection.
-    #     Полный intent (classify_intent) определяется позже, с полным контекстом.
-    quick_intent = classify_quick_intent(message)  # regex-based: browse/search/chat/emotional/unknown
+    quick_intent = classify_quick_intent(message)
+    
+    # 1c. Query Complexity Router — определяет уровень обработки запроса.
+    #     Разные уровни → разный pipeline, разный бюджет latency, разная анимация.
+    query_level = classify_query_complexity(message)
     
     # 2. ПАРАЛЛЕЛЬНО: Embed запрос + Persona Agent
     #    Маппинг mood_frame → формат Persona Agent API contract:
@@ -1503,6 +1513,21 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
     
     # 7. Memory Density Cap (адаптивный: new ≤3, active ≤5, mature ≤7)
     episodes = apply_density_cap(episodes, recent_messages)
+    
+    # 7a. Query Expansion для Level 2+ (Contextual/Complex)
+    if query_level >= 2 and len(episodes) < 3:
+        # Мало результатов по прямому запросу → разбить на подзапросы
+        sub_queries = expand_query(message, recent_messages, user_profile)
+        for sq in sub_queries:
+            sq_embedding = embedding_client.embed_query(sq)
+            extra = hybrid_search(shard_conn, user_id, sq_embedding, sq,
+                                  top_k=5, similarity_threshold=sim_threshold)
+            episodes = merge_episodes(episodes, extra, max_total=15)
+    
+    # 7b. Agentic Loop для Level 3 (Complex, Фаза 2)
+    #     Если после expansion всё ещё мало данных → LLM генерирует уточняющий вопрос
+    #     Для MVP: если Level 3 и episodes < 3 → добавить в situational_rules:
+    #     "Недостаточно данных для сложного запроса. Уточни у юзера."
     
     # 8. Определить intent и маршрутизация
     context = build_context_pack(
@@ -1587,6 +1612,7 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
         "avatar_state": persona_output.get("avatar_state"),
         "render_hints": persona_output.get("render_hints"),
         "intent": intent.type,
+        "query_level": query_level,
         "duration_ms": total_ms,
         "model_used": llm_response.model,
     }
@@ -1599,6 +1625,88 @@ def select_provider() -> str:
     # Fallback 2: Claude
     # Fallback 3: Qwen
     ...
+
+
+def classify_query_complexity(message: str) -> int:
+    """
+    Классификация сложности запроса. Определяет pipeline.
+    
+    Level 1 — Simple (80%): "белые кроссовки до $100", "покажи ещё"
+      → один vector search + UK → Consultant → ответ. Latency: 2-4s.
+    
+    Level 2 — Contextual (15%): "как в прошлый раз но дешевле"
+      → Query Expansion: 2-3 подзапроса, параллельные searches. Latency: 4-7s.
+      → Аватар: "вспоминаю..." анимация.
+    
+    Level 3 — Complex (5%): "собери капсулу на неделю с учётом календаря"
+      → Agentic loop: несколько итераций поиска. Latency: 8-15s.
+      → Аватар: "работаю над чем-то особенным".
+      → MVP: fallback на Level 2 + уточняющий вопрос.
+    """
+    msg = message.lower()
+    
+    # Эвристики Level 3 (Complex)
+    complex_signals = 0
+    if any(w in msg for w in ['капсул', 'на неделю', 'на месяц', 'полный гардероб']):
+        complex_signals += 2
+    if msg.count(' и ') + msg.count(' но ') + msg.count(' кроме ') >= 3:
+        complex_signals += 1  # много условий
+    if len(msg) > 200:
+        complex_signals += 1
+    if complex_signals >= 2:
+        return 3
+    
+    # Эвристики Level 2 (Contextual)
+    contextual_patterns = [
+        'помнишь', 'как тогда', 'как в прошлый раз', 'как мы',
+        'тот ', 'то самое', 'та ', 'те ',
+        'remember', 'last time', 'like before',
+        'تذكر', 'مثل', 'زي المرة',
+    ]
+    if any(p in msg for p in contextual_patterns):
+        return 2
+    if msg.count(' не ') + msg.count(' без ') + msg.count(' кроме ') >= 2:
+        return 2  # цепочка исключений
+    
+    return 1  # Simple
+
+
+def expand_query(message: str, recent_messages: list, user_profile: dict) -> list[str]:
+    """
+    Query Expansion для Level 2+.
+    Разбивает сложный запрос на 2-3 конкретных подзапроса для Hybrid Search.
+    
+    Пример:
+      "Помнишь тот жакет что Маша одобрила? Хочу похожий, но потеплее"
+      → ["жакет Маша одобрила", "тёплый жакет шерсть"]
+    
+    MVP: rule-based extraction ключевых фраз.
+    Фаза 2: LLM-based decomposition (DeepSeek flash, ~200ms).
+    """
+    sub_queries = []
+    msg = message.lower()
+    
+    # Извлечь ссылки на прошлое
+    import re
+    past_refs = re.findall(r'(?:помнишь|тот|та|то|те|как в прошлый раз)\s+(.{5,40}?)(?:\?|,|\.|\s+но\s|\s+и\s)', msg)
+    for ref in past_refs:
+        sub_queries.append(ref.strip())
+    
+    # Извлечь имена людей из recent_messages (Маша, Дима, Лейла)
+    names_in_context = set()
+    for m in recent_messages[-5:]:
+        found = re.findall(r'\b[А-ЯA-Z][а-яa-z]{2,15}\b', m.get('content', ''))
+        names_in_context.update(found)
+    for name in names_in_context:
+        if name.lower() in msg:
+            sub_queries.append(f"{name}")
+    
+    # Если нет результатов — fallback: разбить по запятым/союзам
+    if not sub_queries:
+        parts = re.split(r',\s*|\s+но\s+|\s+и\s+|\s+а\s+', message)
+        sub_queries = [p.strip() for p in parts if len(p.strip()) > 10][:3]
+    
+    return sub_queries[:3]  # макс 3 подзапроса
 
 
 def validate_persona_output(raw_output: dict) -> dict:
