@@ -1054,6 +1054,8 @@ RATE_LIMITS = {
 
 При превышении: HTTP 429, ответ юзеру через аватар: «Подожди секундочку, я ещё думаю...»
 
+**Атомарность:** При нескольких инстансах App Server — счётчики в Redis через `INCR` + `EXPIRE` (sliding window). Для per-second: использовать `redis.evalsha()` с Lua-скриптом (atomic increment + check) чтобы два инстанса не пропустили одновременно. Для MVP (1 инстанс App Server) — `INCR` достаточно.
+
 **Message Debouncing (App Server):**
 
 Если юзер шлёт 3 сообщения за 2 секунды до того, как Orchestrator начал обработку:
@@ -1517,10 +1519,16 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
     
     # 7a. Query Expansion для Level 2+ (Contextual/Complex)
     query_expansion_used = False
+    query_expansion_attempted = False
     if query_level >= 2 and len(episodes) < 3:
         sub_queries = expand_query(message, recent_messages, user_profile)
         if sub_queries:
-            # Параллельные embeddings + searches (не последовательно)
+            query_expansion_attempted = True
+            before_ids = {ep['message_id'] for ep in episodes}
+            
+            # Параллельные embeddings + searches
+            # ВАЖНО: parallel() в реализации = asyncio.gather() или ThreadPoolExecutor.
+            # Не for-loop. Latency = max(single_search), не sum(all_searches).
             sq_embeddings = parallel(*[embedding_client.embed_query(sq) for sq in sub_queries])
             sq_results = parallel(*[
                 hybrid_search(shard_conn, user_id, emb, sq,
@@ -1535,9 +1543,10 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
                 #   3. Сортировка по final_score DESC
                 #   4. Обрезка до max_total (15)
             
-            # expansion_used = True только если реально нашли новые эпизоды
-            new_count = len(episodes)
-            query_expansion_used = new_count > 0
+            # expansion_used = True только если НОВЫЕ message_id появились
+            after_ids = {ep['message_id'] for ep in episodes}
+            new_ids = after_ids - before_ids
+            query_expansion_used = len(new_ids) > 0
     
     # 7b. Level 3 MVP fallback: если сложный запрос и мало данных → уточнить
     if query_level >= 3 and len(episodes) < 3:
@@ -1569,13 +1578,16 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
     
     # 8a. Hard Token Limit: обрезка если ContextPack > budget
     #     Не полагаемся только на N=15 эпизодов — длинные эпизоды могут переполнить.
-    CONTEXT_TOKEN_BUDGET = 6000  # ~6K токенов на ContextPack (оставляем 2K на ответ LLM)
+    # Для Level 3: бюджет больше (сложные запросы требуют больше контекста)
+    CONTEXT_TOKEN_BUDGET = 8000 if query_level >= 3 else 6000
     context = enforce_token_limit(context, CONTEXT_TOKEN_BUDGET)
     #   enforce_token_limit():
     #     1. Подсчёт токенов (chars / 4 приближённо, или tiktoken)
     #     2. Если > budget: убирать эпизоды с наименьшим score по одному
     #     3. НЕПРИКАСАЕМЫЕ блоки (hard_bans, identity, recent 5 msgs) не трогать
     #     4. Логировать: metrics.increment('unde_context_truncated')
+    #     5. Мониторинг: unde_context_truncated_total{query_level} — если >10% для Level 3
+    #        → рассмотреть увеличение budget или smarter truncation
     
     intent = classify_intent(message, context)
     
@@ -1658,7 +1670,8 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
         "render_hints": persona_output.get("render_hints"),
         "intent": intent.type,
         "query_level": query_level,
-        "query_expansion_used": query_expansion_used,
+        "query_expansion_attempted": query_expansion_attempted,  # зашли в блок + sub_queries не пустой
+        "query_expansion_used": query_expansion_used,            # реально добавлены новые эпизоды
         "duration_ms": total_ms,
         "model_used": llm_response.model,
     }
