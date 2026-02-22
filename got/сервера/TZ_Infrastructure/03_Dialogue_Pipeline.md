@@ -1274,8 +1274,9 @@ def validate_context_frame(context_frame: dict) -> dict:
 
 При переключении на fallback LLM (DeepSeek → Gemini → Claude → Qwen) — стиль ответа может «плавать». Защита:
 
-1. **Golden conformance tests**: 20 ключевых сценариев (crisis, body image, gaslighting, modest sexy). При деплое каждого provider → автоматический прогон.
-2. **Provider-specific prompt adapters**: если Gemini хуже следует hard bans → усилить формулировки в system prompt для Gemini. Адаптеры хранятся в `persona_contract`.
+1. **Provider conformance tests**: подмножество 20 из 66 golden tests — критичные для бренд-голоса (GT-030..GT-042 safety + CT-08 modest sexy + CT-11/12 sarcasm + CT-15/16 security). При деплое каждого provider → автоматический прогон. Если pass_rate < 90% → блокировка provider'а.
+2. **Полный регресс (66 тестов)**: запускается при релизе LLM Orchestrator / Persona Agent. GT-001..GT-042 (Persona unit tests) + CT-01..CT-24 (Knowledge Logic Chains). Блокирует деплой при pass_rate < 95%.
+3. **Provider-specific prompt adapters**: если Gemini хуже следует hard bans → усилить формулировки в system prompt для Gemini. Адаптеры хранятся в `persona_contract`.
 
 ### Docker Compose
 
@@ -1517,19 +1518,26 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
     # 7a. Query Expansion для Level 2+ (Contextual/Complex)
     query_expansion_used = False
     if query_level >= 2 and len(episodes) < 3:
-        # Мало результатов по прямому запросу → разбить на подзапросы
         sub_queries = expand_query(message, recent_messages, user_profile)
-        for sq in sub_queries:
-            sq_embedding = embedding_client.embed_query(sq)
-            extra = hybrid_search(shard_conn, user_id, sq_embedding, sq,
-                                  top_k=5, similarity_threshold=sim_threshold)
-            episodes = merge_episodes(episodes, extra, max_total=15)
-            # merge_episodes():
-            #   1. Дедупликация по message_id (если один эпизод найден в двух подзапросах)
-            #   2. При дубликате: оставить с БОЛЬШИМ final_score
-            #   3. Объединённый список сортируется по final_score DESC
-            #   4. Обрезка до max_total (15)
-        query_expansion_used = True
+        if sub_queries:
+            # Параллельные embeddings + searches (не последовательно)
+            sq_embeddings = parallel(*[embedding_client.embed_query(sq) for sq in sub_queries])
+            sq_results = parallel(*[
+                hybrid_search(shard_conn, user_id, emb, sq,
+                              top_k=5, similarity_threshold=sim_threshold)
+                for emb, sq in zip(sq_embeddings, sub_queries)
+            ])
+            for extra in sq_results:
+                episodes = merge_episodes(episodes, extra, max_total=15)
+                # merge_episodes():
+                #   1. Дедупликация по message_id
+                #   2. При дубликате: оставить с БОЛЬШИМ final_score (из Hybrid Search)
+                #   3. Сортировка по final_score DESC
+                #   4. Обрезка до max_total (15)
+            
+            # expansion_used = True только если реально нашли новые эпизоды
+            new_count = len(episodes)
+            query_expansion_used = new_count > 0
     
     # 7b. Level 3 MVP fallback: если сложный запрос и мало данных → уточнить
     if query_level >= 3 and len(episodes) < 3:
@@ -1544,6 +1552,8 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
     #     Фаза 2: Agentic Loop — несколько итераций поиска + промежуточная валидация.
     
     # 8. Определить intent и маршрутизация
+    #    extra_situational_rules добавляются ПОСЛЕ persona_directive.situational_rules,
+    #    ПЕРЕД hard_bans. Порядок: persona rules → Level 3 fallback → staleness guard.
     context = build_context_pack(
         user_profile=user_profile,
         episodes=episodes,
@@ -1556,10 +1566,25 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
         persona_directive=persona_output['persona_directive'],
         extra_situational_rules=context_pack_extra_rules,
     )
+    
+    # 8a. Hard Token Limit: обрезка если ContextPack > budget
+    #     Не полагаемся только на N=15 эпизодов — длинные эпизоды могут переполнить.
+    CONTEXT_TOKEN_BUDGET = 6000  # ~6K токенов на ContextPack (оставляем 2K на ответ LLM)
+    context = enforce_token_limit(context, CONTEXT_TOKEN_BUDGET)
+    #   enforce_token_limit():
+    #     1. Подсчёт токенов (chars / 4 приближённо, или tiktoken)
+    #     2. Если > budget: убирать эпизоды с наименьшим score по одному
+    #     3. НЕПРИКАСАЕМЫЕ блоки (hard_bans, identity, recent 5 msgs) не трогать
+    #     4. Логировать: metrics.increment('unde_context_truncated')
+    
     intent = classify_intent(message, context)
     
+    # 8b. Zombie check: если юзер отменил запрос пока мы собирали контекст
+    if redis.get(f"cancelled:{request_id}"):
+        log.info(f"[{request_id}] request cancelled by client, aborting")
+        return graceful_degradation_response("client_cancelled")
+    
     # ЭТАП 1: Consultant (что рекомендовать)
-    # Модульный вызов: Intelistyle (MVP) → Consultant LLM (Фаза 2)
     consultant_result = get_consultant_result(intent, context)
     if consultant_result:
         context.add("consultant_result", consultant_result)
@@ -1567,6 +1592,11 @@ def generate_response(user_id: str, message: str, input_type: str = 'text',
     if intent.requires_recognition:
         recognition_result = recognize_photo.delay(intent.photo_url, user_id).get(timeout=15)
         context.add("recognition_result", recognition_result)
+    
+    # 9a. Zombie check: перед самым дорогим вызовом (LLM)
+    if redis.get(f"cancelled:{request_id}"):
+        log.info(f"[{request_id}] cancelled before LLM call")
+        return graceful_degradation_response("client_cancelled")
     
     # 9. ЭТАП 2: Voice LLM (как сказать)
     #    Voice LLM НЕ придумывает рекомендации — оборачивает consultant_result
@@ -1661,12 +1691,24 @@ def classify_query_complexity(message: str) -> int:
     """
     msg = message.lower()
     
-    # Эвристики Level 3 (Complex)
+    # Эвристики Level 3 (Complex) — мультиязычные
     complex_signals = 0
-    if any(w in msg for w in ['капсул', 'на неделю', 'на месяц', 'полный гардероб']):
+    complex_keywords = [
+        # RU
+        'капсул', 'на неделю', 'на месяц', 'полный гардероб',
+        # EN
+        'capsule', 'for a week', 'for the week', 'full wardrobe', 'weekly outfit',
+        # AR
+        'كبسول', 'لأسبوع', 'خزانة كاملة', 'ملابس الأسبوع',
+    ]
+    if any(w in msg for w in complex_keywords):
         complex_signals += 2
-    if msg.count(' и ') + msg.count(' но ') + msg.count(' кроме ') >= 3:
-        complex_signals += 1  # много условий
+    # Счётчики условий — мультиязычные
+    condition_count = (msg.count(' и ') + msg.count(' но ') + msg.count(' кроме ')  # RU
+                     + msg.count(' and ') + msg.count(' but ') + msg.count(' except ')  # EN
+                     + msg.count(' و') + msg.count(' بس ') + msg.count(' غير '))  # AR
+    if condition_count >= 3:
+        complex_signals += 1
     if len(msg) > 200:
         complex_signals += 1
     if complex_signals >= 2:
