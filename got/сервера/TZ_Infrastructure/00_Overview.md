@@ -200,14 +200,45 @@
 | **etcd-3** | **10.1.1.20** | **etcd quorum node (3-й узел для Patroni)** | **CPX11 (~€4/мес)** | 🆕 Создать |
 | **analytics-replica** | — | **Аналитика, B2B отчёты, ML, поведенческий анализ (Фаза 2+)** | **AX162-R (256GB DDR5, $245/мес)** | 📋 Планируется |
 
-### Dubai (primary user data — bare metal)
+### Dubai (primary user data + dialogue hot path — bare metal / colocation)
+
+**Принцип:** Всё, что на critical path диалога (юзер ждёт ответа), живёт в Дубае.
+RTT Dubai ↔ Hetzner = 120ms. Каждый hop = +120ms к latency. Orchestrator делает 4-5 hops к шарду за запрос = **+480-600ms чисто на сеть**. Перенос hot path серверов в Дубай убирает это до <5ms.
 
 | Сервер | Задача | Тип | Статус |
 |--------|--------|-----|--------|
-| **dubai-shard-0** | **Primary DB: Chat History (pgvector, FTS, партиции) + User Knowledge (AES-256). Tmpfs 140 GB, WAL на NVMe** | **Bare metal dedicated (256 GB RAM, 2× EPYC, 2× 2TB NVMe)** | 🆕 Арендовать |
-| **etcd-1** | **etcd node на Dubai app-сервере (контейнер)** | **Lightweight VM / контейнер** | 🆕 Создать |
+| **dubai-shard-0** | Primary DB: Chat History + User Knowledge. Tmpfs 140 GB, WAL на NVMe | Bare metal dedicated (256 GB RAM, 2× EPYC, 2× 2TB NVMe) | 🆕 Арендовать |
+| **dubai-app** | App Server (API entry point). Юзеры в Дубае → <1ms вместо 120ms | Bare metal или VPS (8 vCPU, 16 GB) | 🆕 Фаза 2 |
+| **dubai-orchestrator** | LLM Orchestrator (dialogue brain). Ходит в shard 4-5 раз/запрос | Bare metal или VPS (4 vCPU, 8 GB) × N pods | 🆕 Фаза 2 |
+| **dubai-redis** | Redis (очереди, rate limit, mood/context cache, debounce) | VPS (4 GB RAM) или контейнер на app | 🆕 Фаза 2 |
+| **dubai-mood** | Mood Agent (эмоц. анализ). Параллельный path, Orch ждёт 300ms | VPS (2 vCPU, 2 GB) или контейнер | 🆕 Фаза 2 |
+| **dubai-persona** | Persona Agent (характер, тон). Читает stage из shard | VPS (2 vCPU, 4 GB) или контейнер | 🆕 Фаза 2 |
+| **dubai-context** | Context Agent (геолок, погода, культура) | VPS (2 vCPU, 4 GB) или контейнер | 🆕 Фаза 2 |
+| **dubai-voice** | Voice Server (TTS proxy → ElevenLabs). Streaming audio юзеру | VPS (3 vCPU, 4 GB) | 🆕 Фаза 2 |
+| **etcd-1** | etcd node для Patroni | Lightweight контейнер | 🆕 Создать |
 
-> **Примечание:** Chat History DB и User Knowledge DB больше не являются отдельными серверами на Hetzner. Они объединены на одном шарде (Dubai bare metal primary + Hetzner AX102 replica). Это решение из документов UNDE_Infrastructure_BD и UNDE_Smart_Context_Architecture. При росте до 10,000 юзеров — добавляется второй шард (dubai-shard-1 + shard-replica-1).
+**Выигрыш по latency:**
+```
+Сейчас (hot path через Hetzner):    ~480-600ms сетевой overhead
+После (hot path в Dubai):            ~5ms сетевой overhead
+Выигрыш:                             ~500ms на КАЖДЫЙ запрос
+```
+
+**Реализация для Dubai:**
+- **Фаза 1 (MVP):** Только dubai-shard-0 + etcd-1 в Дубае. Остальное в Hetzner (работает, но +500ms).
+- **Фаза 2 (10K+):** Перенос hot path (app + orchestrator + agents + redis + voice) в Дубай. Один bare metal сервер (64 GB RAM) вмещает все эти контейнеры — они лёгкие (суммарно ~30 GB RAM, 20 vCPU).
+- **Фаза 3 (50K+):** Kubernetes cluster в Дубае (2-3 bare metal node), отдельные pods для Orchestrator (auto-scale).
+
+**Что ОСТАЁТСЯ в Hetzner Helsinki:**
+- Production DB (каталог) — batch sync, не на critical path
+- Shard Replicas — hot standby для failover
+- Recognition pipeline (Ximilar GW, LLM Reranker) — async, 5-15s
+- Batch pipeline (Scraper, Photo Downloader, Collage, Ximilar Sync)
+- Model Generator, TryOn Service — async
+- Object Storage (images)
+- etcd-2, etcd-3 (Patroni quorum)
+
+> **Примечание:** Все серверы на critical path (App, Orchestrator, Agents, Redis, Voice) помещаются на **одном** bare metal сервере (64 GB RAM, 16 cores) в Дубае как Docker Compose с контейнерами. Стоимость: ~$300-400/мес. Экономически оправдано: 500ms экономии × тысячи запросов/день = ощутимо лучший UX.
 
 ---
 
