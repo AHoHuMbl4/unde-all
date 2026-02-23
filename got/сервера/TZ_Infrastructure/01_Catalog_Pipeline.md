@@ -35,7 +35,7 @@
 # /opt/unde/scraper/.env
 
 # Staging DB
-STAGING_DB_URL=postgresql://scraper:xxx@10.1.1.3:6432/unde_staging
+STAGING_DB_URL=postgresql://scraper:xxx@10.1.0.8:6432/unde_staging
 
 # Production DB
 PRODUCTION_DB_URL=postgresql://undeuser:xxx@10.1.1.2:6432/unde_main
@@ -56,7 +56,7 @@ KZ_ZARA_STORES=6643,9204,9073,16546
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | apify |
-| **Private IP** | 10.1.0.7 |
+| **Private IP** | 10.1.0.9 |
 | **Тип** | Hetzner CPX21 |
 | **vCPU** | 3 |
 | **RAM** | 4 GB |
@@ -72,9 +72,9 @@ KZ_ZARA_STORES=6643,9204,9073,16546
 
 ### Что НЕ делает
 
-- ❌ Скачивание фото (это Photo Downloader, 10.1.0.13)
+- ❌ Скачивание фото (это Photo Downloader, 10.1.0.10)
 - ❌ Upload фото в Object Storage (это Photo Downloader)
-- ❌ Синхронизация с Ximilar (это Ximilar Sync, 10.1.0.14)
+- ❌ Синхронизация с Ximilar (это Ximilar Sync, 10.1.0.11)
 
 ### Задачи
 
@@ -113,7 +113,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.7:9100:9100"
+      - "10.1.0.9:9100:9100"
 ```
 
 ### Environment Variables
@@ -125,7 +125,7 @@ services:
 APIFY_TOKEN=apify_api_xxx
 
 # Staging DB
-STAGING_DB_URL=postgresql://apify:xxx@10.1.1.3:6432/unde_staging
+STAGING_DB_URL=postgresql://apify:xxx@10.1.0.8:6432/unde_staging
 
 # Redis (Push Server)
 REDIS_URL=redis://:xxx@10.1.0.4:6379/7
@@ -191,7 +191,7 @@ def collect_brand(brand: str):
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | photo-downloader |
-| **Private IP** | 10.1.0.13 |
+| **Private IP** | 10.1.0.10 |
 | **Тип** | Hetzner CPX21 |
 | **vCPU** | 3 |
 | **RAM** | 4 GB |
@@ -249,7 +249,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.13:9100:9100"
+      - "10.1.0.10:9100:9100"
 ```
 
 ### Environment Variables
@@ -258,7 +258,7 @@ services:
 # /opt/unde/photo-downloader/.env
 
 # Staging DB
-STAGING_DB_URL=postgresql://downloader:xxx@10.1.1.3:6432/unde_staging
+STAGING_DB_URL=postgresql://downloader:xxx@10.1.0.8:6432/unde_staging
 
 # Hetzner Object Storage
 S3_ENDPOINT=https://hel1.your-objectstorage.com
@@ -346,7 +346,7 @@ def download_pending():
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | ximilar-sync |
-| **Private IP** | 10.1.0.14 |
+| **Private IP** | 10.1.0.11 |
 | **Тип** | Hetzner CPX11 |
 | **vCPU** | 2 |
 | **RAM** | 2 GB |
@@ -403,7 +403,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.14:9100:9100"
+      - "10.1.0.11:9100:9100"
 ```
 
 ### Environment Variables
@@ -412,7 +412,7 @@ services:
 # /opt/unde/ximilar-sync/.env
 
 # Staging DB
-STAGING_DB_URL=postgresql://ximilar:xxx@10.1.1.3:6432/unde_staging
+STAGING_DB_URL=postgresql://ximilar:xxx@10.1.0.8:6432/unde_staging
 
 # Ximilar
 XIMILAR_API_TOKEN=xxx
@@ -498,7 +498,7 @@ def sync_to_ximilar():
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | collage |
-| **Private IP** | 10.1.0.8 |
+| **Private IP** | 10.1.0.16 |
 | **Тип** | Hetzner CPX31 |
 | **vCPU** | 4 |
 | **RAM** | 8 GB |
@@ -573,7 +573,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.8:9100:9100"
+      - "10.1.0.16:9100:9100"
 ```
 
 ### Environment Variables
@@ -581,7 +581,7 @@ services:
 ```bash
 # /opt/unde/collage/.env
 
-STAGING_DB_URL=postgresql://collage:xxx@10.1.1.3:6432/unde_staging
+STAGING_DB_URL=postgresql://collage:xxx@10.1.0.8:6432/unde_staging
 S3_ENDPOINT=https://hel1.your-objectstorage.com
 S3_ACCESS_KEY=xxx
 S3_SECRET_KEY=xxx
@@ -625,7 +625,7 @@ def process_product(product_id: int):
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | staging-db |
-| **Private IP** | 10.1.1.3 |
+| **Private IP** | 10.1.0.8 |
 | **Тип** | Hetzner CPX21 |
 | **vCPU** | 3 |
 | **RAM** | 4 GB |
@@ -696,9 +696,16 @@ CREATE TABLE raw_availability (
     product_id VARCHAR(100) NOT NULL,
     sizes_in_stock JSONB NOT NULL,
     fetched_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(brand, store_id, product_id, fetched_at::date)
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Expression UNIQUE: PG не поддерживает cast в UNIQUE constraint напрямую
+CREATE FUNCTION to_date_immutable(ts TIMESTAMPTZ) RETURNS DATE AS $$
+    SELECT (ts AT TIME ZONE 'UTC')::date;
+$$ LANGUAGE SQL IMMUTABLE;
+
+CREATE UNIQUE INDEX idx_raw_availability_unique_daily
+    ON raw_availability(brand, store_id, product_id, to_date_immutable(fetched_at));
 
 -- Физические магазины Казахстана
 CREATE TABLE raw_stores (
@@ -774,7 +781,7 @@ archive_mode = off
 unde_staging = host=127.0.0.1 port=5432 dbname=unde_staging
 
 [pgbouncer]
-listen_addr = 10.1.1.3
+listen_addr = 10.1.0.8
 listen_port = 6432
 auth_type = scram-sha-256
 pool_mode = transaction
@@ -796,11 +803,11 @@ default_pool_size = 10
 
 | Сервер | IP | Доступ |
 |--------|-----|--------|
-| Apify Server | 10.1.0.7 | ✅ |
-| Photo Downloader | 10.1.0.13 | ✅ |
-| Ximilar Sync | 10.1.0.14 | ✅ |
+| Apify Server | 10.1.0.9 | ✅ |
+| Photo Downloader | 10.1.0.10 | ✅ |
+| Ximilar Sync | 10.1.0.11 | ✅ |
 | Scraper Server | 10.1.0.3 | ✅ |
-| Collage Server | 10.1.0.8 | ✅ |
+| Collage Server | 10.1.0.16 | ✅ |
 | Production DB | 10.1.1.2 | ❌ |
 | App Server | 10.1.0.2 | ❌ |
 

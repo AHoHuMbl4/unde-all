@@ -17,7 +17,7 @@
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | recognition |
-| **Private IP** | 10.1.0.9 |
+| **Private IP** | 10.1.0.14 |
 | **Тип** | Hetzner CPX11 |
 | **vCPU** | 2 |
 | **RAM** | 2 GB |
@@ -28,7 +28,7 @@
 
 Координатор Fashion Recognition Pipeline:
 - Принимает Celery task из Redis (от App Server)
-- Вызывает Ximilar Gateway (10.1.0.15) и LLM Reranker (10.1.0.16) по HTTP
+- Вызывает Ximilar Gateway (10.1.0.12) и LLM Reranker (10.1.0.13) по HTTP
 - Собирает результаты всех шагов
 - Сохраняет лог в Production DB
 - Отдаёт финальный результат
@@ -59,7 +59,7 @@
          ▼
 ┌─────────────────┐         ┌───────────────────────────────┐
 │  Push Server    │         │  RECOGNITION ORCHESTRATOR     │
-│  10.1.0.4       │◄───────►│  10.1.0.9                     │
+│  10.1.0.4       │◄───────►│  10.1.0.14                    │
 │  Redis Broker   │         │                               │
 └─────────────────┘         │  2 Celery workers (I/O bound) │
                             └──┬─────────────────────┬──────┘
@@ -67,7 +67,7 @@
                                ▼                     ▼
                     ┌─────────────────┐   ┌─────────────────┐
                     │ XIMILAR GATEWAY │   │ LLM RERANKER    │
-                    │ 10.1.0.15       │   │ 10.1.0.16       │
+                    │ 10.1.0.12       │   │ 10.1.0.13       │
                     │                 │   │                  │
                     │ HTTP :8001      │   │ HTTP :8002       │
                     │ • detect        │   │ • tag_context    │
@@ -215,7 +215,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.9:9100:9100"
+      - "10.1.0.14:9100:9100"
 ```
 
 **2 concurrent workers:** оркестратор только ждёт HTTP-ответов от Ximilar Gateway и LLM Reranker. Минимум CPU.
@@ -293,13 +293,13 @@ def recognize_photo(photo_url: str, user_id: str = None) -> dict:
 
 # HTTP клиенты для внутренних серверов
 class XimilarGW:
-    BASE = "http://10.1.0.15:8001"
+    BASE = "http://10.1.0.12:8001"
     def detect(self, url): return post(f"{self.BASE}/detect", json={"url": url})
     def tag(self, url): return post(f"{self.BASE}/tag", json={"url": url})
     def search(self, **kw): return post(f"{self.BASE}/search", json=kw)
 
 class LLMReranker:
-    BASE = "http://10.1.0.16:8002"
+    BASE = "http://10.1.0.13:8002"
     def tag_context(self, url): return post(f"{self.BASE}/tag", json={"url": url})
     def visual_rerank(self, **kw): return post(f"{self.BASE}/rerank", json=kw)
 ```
@@ -310,8 +310,8 @@ class LLMReranker:
 # /opt/unde/recognition/.env
 
 # Внутренние серверы (private network)
-XIMILAR_GW_URL=http://10.1.0.15:8001
-LLM_RERANKER_URL=http://10.1.0.16:8002
+XIMILAR_GW_URL=http://10.1.0.12:8001
+LLM_RERANKER_URL=http://10.1.0.13:8002
 
 # Celery (Redis на Push Server)
 REDIS_PASSWORD=xxx
@@ -340,8 +340,8 @@ CONFIDENCE_MEDIUM=0.50
 │   ├── celery_app.py
 │   ├── tasks.py                # recognize_photo orchestration
 │   ├── clients/
-│   │   ├── ximilar_gw.py      # HTTP client → 10.1.0.15
-│   │   └── llm_reranker.py    # HTTP client → 10.1.0.16
+│   │   ├── ximilar_gw.py      # HTTP client → 10.1.0.12
+│   │   └── llm_reranker.py    # HTTP client → 10.1.0.13
 │   ├── db.py
 │   └── utils.py
 ├── scripts/
@@ -395,7 +395,7 @@ CREATE INDEX idx_recognition_created ON recognition_requests(created_at DESC);
 ### Связь с каталогом (Ximilar Sync Server)
 
 Recognition Pipeline зависит от актуальности каталога в Ximilar Collection:
-- **Ximilar Sync Server (10.1.0.14)** выполняет `ximilar_sync` еженедельно после сбора каталога
+- **Ximilar Sync Server (10.1.0.11)** выполняет `ximilar_sync` еженедельно после сбора каталога
 - Новые/обновлённые SKU с фото автоматически загружаются в Ximilar Collection
 - Ximilar Gateway использует ту же Collection для Visual Search (Step 3)
 
@@ -408,7 +408,7 @@ Recognition Pipeline зависит от актуальности каталог
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | ximilar-gw |
-| **Private IP** | 10.1.0.15 |
+| **Private IP** | 10.1.0.12 |
 | **Тип** | Hetzner CPX21 |
 | **vCPU** | 3 |
 | **RAM** | 4 GB |
@@ -466,7 +466,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "10.1.0.15:8001:8001"
+      - "10.1.0.12:8001:8001"
     deploy:
       resources:
         limits:
@@ -477,7 +477,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.15:9100:9100"
+      - "10.1.0.12:9100:9100"
 ```
 
 ### Environment Variables
@@ -529,7 +529,7 @@ WORKERS=4
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | llm-reranker |
-| **Private IP** | 10.1.0.16 |
+| **Private IP** | 10.1.0.13 |
 | **Тип** | Hetzner CPX11 |
 | **vCPU** | 2 |
 | **RAM** | 2 GB |
@@ -580,7 +580,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "10.1.0.16:8002:8002"
+      - "10.1.0.13:8002:8002"
     deploy:
       resources:
         limits:
@@ -591,7 +591,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.16:9100:9100"
+      - "10.1.0.13:9100:9100"
 ```
 
 ### Environment Variables

@@ -123,7 +123,7 @@
 
 | # | Сервер | IP (private) | IP (public) | Тип | Статус |
 |---|--------|-------------|-------------|-----|--------|
-| H1 | **helsinki-gw** | 10.1.0.2 | 46.62.233.30 | CX43 | ✅ Установлен (бывший unde-app, переназначен как router) |
+| H1 | **helsinki-gw** | 10.1.0.2 | 46.62.233.30 | CX23 | ✅ Установлен (бывший unde-app, переназначен как router) |
 | H2 | scraper | 10.1.0.3 | 46.62.255.184 | CPX22 | ✅ Работает |
 | H3 | push | 10.1.0.4 | 77.42.30.44 | CPX32 | ✅ Работает |
 | H4 | model-generator | 10.1.0.5 | 89.167.20.60 | CPX22 | ✅ Работает |
@@ -144,20 +144,20 @@
 
 | # | Сервер | IP (private) | Тип | €/мес | Задача | Статус |
 |---|--------|-------------|-----|-------|--------|--------|
-| H7 | **apify** | 10.1.0.7 | CPX21 | €12 | Сбор метаданных каталога (Apify.com, 6 брендов) | 🆕 Создать |
-| H8 | **collage** | 10.1.0.8 | CPX31 | €25 | Склейка фото (горизонтальные коллажи для try-on) | 🆕 Создать |
-| H9 | **recognition** | 10.1.0.9 | CPX11 | €6 | Recognition Orchestrator (координация 4-step pipeline) | 🆕 Создать |
-| H10 | **photo-downloader** | 10.1.0.13 | CPX21 | €12 | Скачивание фото брендов → Object Storage | 🆕 Создать |
-| H11 | **ximilar-sync** | 10.1.0.14 | CPX11 | €6 | Синхронизация каталога → Ximilar Collection | 🆕 Создать |
-| H12 | **ximilar-gw** | 10.1.0.15 | CPX21 | €12 | Ximilar Gateway (/detect, /tag, /search) | 🆕 Создать |
-| H13 | **llm-reranker** | 10.1.0.16 | CPX11 | €6 | LLM Reranker (Gemini visual comparison) | 🆕 Создать |
-| H14 | **staging-db** | 10.1.1.3 | CPX21 | €12 | PostgreSQL staging (raw_products, raw_availability) | 🆕 Создать |
+| H7 | **apify** | 10.1.0.9 | CX23 | €12 | Сбор метаданных каталога (Apify.com, 6 брендов) | ✅ Создан |
+| H8 | **collage** | 10.1.0.16 | CX33 | €25 | Склейка фото (горизонтальные коллажи для try-on) | ✅ Создан |
+| H9 | **recognition** | 10.1.0.14 | CX23 | €6 | Recognition Orchestrator (координация 4-step pipeline) | ✅ Создан |
+| H10 | **photo-downloader** | 10.1.0.10 | CX23 | €12 | Скачивание фото брендов → Object Storage | ✅ Создан |
+| H11 | **ximilar-sync** | 10.1.0.11 | CX23 | €6 | Синхронизация каталога → Ximilar Collection | ✅ Создан |
+| H12 | **ximilar-gw** | 10.1.0.12 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Создан |
+| H13 | **llm-reranker** | 10.1.0.13 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Создан |
+| H14 | **staging-db** | 10.1.0.8 | CPX22 | €12 | PostgreSQL staging (raw_products, raw_availability) | ✅ Создан |
 | H15 | **shard-replica-0** | 10.1.1.10 | CCX23 (4 vCPU / 16 GB) | €39 | Hot standby replica шарда 0 (Patroni + streaming replication) | 🆕 Создать |
 | H16 | **etcd-2** | на shard-replica-0 | контейнер | €0 | etcd quorum node 2 (на сервере реплики) | 🆕 Создать |
-| H17 | **etcd-3** | 10.1.1.20 | CPX11 | €4 | etcd quorum node 3 (tiebreaker) | 🆕 Создать |
+| H17 | **etcd-3** | 10.1.0.15 | CX23 | €4 | etcd quorum node 3 (tiebreaker) | ✅ Создан |
 | H18 | **posthog** | 10.1.0.30 | CCX33 (8 vCPU / 32 GB) | €74 | PostHog self-hosted: product analytics (ClickHouse + PG + Redis + Kafka) | 🆕 Создать |
-| H19 | **monitoring** | 10.1.0.31 | CPX32 (4 vCPU / 8 GB) | €25 | Prometheus + Grafana + Alertmanager. Единый центр мониторинга обеих площадок | 🆕 Создать |
-| ~~H20~~ | ~~helsinki-gw~~ | — | — | — | Перенесён на H1 (бывший unde-app, CX43, 10.1.0.2 / 46.62.233.30) | ✅ Установлен |
+| H19 | **monitoring** | 10.1.0.7 | CX33 | €25 | Prometheus + Grafana + Alertmanager. Единый центр мониторинга обеих площадок | ✅ Создан |
+| ~~H20~~ | ~~helsinki-gw~~ | — | — | — | Перенесён на H1 (бывший unde-app, CX23, 10.1.0.2 / 46.62.233.30) | ✅ Установлен |
 | — | **Object Storage** | — | S3-compatible | ~€10 | unde-images (/originals/, /collages/), unde-user-media, backups | 🆕 Создать |
 
 **Масштабирование реплик (при добавлении шардов):**
@@ -594,7 +594,7 @@ Events:
 
 ## Мониторинг (обновлённый)
 
-### Выделенный сервер: monitoring (H19, 10.1.0.31)
+### Выделенный сервер: monitoring (H19, 10.1.0.7)
 
 **Почему отдельный сервер:**
 - **1 сервис = 1 сервер** — мониторинг не должен конкурировать за ресурсы с API или batch
@@ -622,8 +622,8 @@ local-etcd-1       ──┤  redis_exporter    │
                                           ▼▼
                                  ┌──────────────────┐
                                  │  MONITORING       │
-                                 │  (10.1.0.31)      │
-                                 │  CPX32 (8 GB)     │
+                                 │  (10.1.0.7)       │
+                                 │  CX33             │
                                  │                   │
                                  │  Prometheus       │
                                  │  ├── scrape all   │
@@ -643,7 +643,7 @@ local-etcd-1       ──┤  redis_exporter    │
 ### Prometheus scrape config
 
 ```yaml
-# /etc/prometheus/prometheus.yml на monitoring (10.1.0.31)
+# /etc/prometheus/prometheus.yml на monitoring (10.1.0.7)
 
 global:
   scrape_interval: 15s
@@ -699,34 +699,34 @@ scrape_configs:
       - targets: ['10.1.1.2:9100', '10.1.1.2:9187']
   - job_name: 'helsinki-staging-db'
     static_configs:
-      - targets: ['10.1.1.3:9100', '10.1.1.3:9187']
+      - targets: ['10.1.0.8:9100', '10.1.0.8:9187']
   - job_name: 'helsinki-shard-replica'
     static_configs:
       - targets: ['10.1.1.10:9100', '10.1.1.10:9187']
   - job_name: 'helsinki-etcd'
     static_configs:
-      - targets: ['10.1.1.10:2379', '10.1.1.20:2379']
+      - targets: ['10.1.1.10:2379', '10.1.0.15:2379']
   - job_name: 'helsinki-recognition'
     static_configs:
-      - targets: ['10.1.0.9:9100']
+      - targets: ['10.1.0.14:9100']
   - job_name: 'helsinki-ximilar-gw'
     static_configs:
-      - targets: ['10.1.0.15:9100']
+      - targets: ['10.1.0.12:9100']
   - job_name: 'helsinki-llm-reranker'
     static_configs:
-      - targets: ['10.1.0.16:9100']
+      - targets: ['10.1.0.13:9100']
   - job_name: 'helsinki-apify'
     static_configs:
-      - targets: ['10.1.0.7:9100']
+      - targets: ['10.1.0.9:9100']
   - job_name: 'helsinki-photo-downloader'
     static_configs:
-      - targets: ['10.1.0.13:9100']
+      - targets: ['10.1.0.10:9100']
   - job_name: 'helsinki-collage'
     static_configs:
-      - targets: ['10.1.0.8:9100']
+      - targets: ['10.1.0.16:9100']
   - job_name: 'helsinki-ximilar-sync'
     static_configs:
-      - targets: ['10.1.0.14:9100']
+      - targets: ['10.1.0.11:9100']
   - job_name: 'helsinki-posthog'
     static_configs:
       - targets: ['10.1.0.30:9100']
@@ -809,7 +809,7 @@ scrape_configs:
 | **Стоимость старта** | $400-600 bare metal + $128 replica | ~$300-600 (локальные) + ~€292 (Helsinki) |
 | **Масштабирование** | Добавить bare metal 256 GB (~$500/мес) | Добавить 16 vCPU/32 GB сервер (~$50-80/мес) |
 | **PostHog** | Не было | CCX33, €74/мес |
-| **Monitoring** | На App Server (смешан с API) | Отдельный CPX32, €25/мес |
+| **Monitoring** | На App Server (смешан с API) | Отдельный CX33, €25/мес |
 | **Сеть** | Один VPN туннель между площадками | Каждый сервер — свой WireGuard туннель → helsinki-gw |
 | **Router/Firewall** | Не было | Debian + MikroTik CHR (CPX22, €12/мес) |
 | **Принцип 1=1** | Нарушался (все на одном BM) | Соблюдается полностью |

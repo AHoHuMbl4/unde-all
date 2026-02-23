@@ -10,18 +10,18 @@
 |--------|--------|---------|-------|----------|
 | **availability_poll** | Scraper (10.1.0.3) | Каждый час | :00 | Mobile API → Staging DB |
 | **sync_to_production** | Scraper (10.1.0.3) | Каждый час | :10 | Staging → Production DB |
-| **process_collages** | Collage (10.1.0.8) | Каждые 15 мин | :00,:15,:30,:45 | Создание коллажей |
-| **retry_failed** | Collage (10.1.0.8) | Каждый час | :30 | Повтор неудачных |
-| **apify_zara** | Apify (10.1.0.7) | Еженедельно | Вс 02:00 | Метаданные Zara |
-| **apify_bershka** | Apify (10.1.0.7) | Еженедельно | Вс 03:00 | Метаданные Bershka |
-| **apify_pullandbear** | Apify (10.1.0.7) | Еженедельно | Вс 04:00 | Метаданные Pull&Bear |
-| **apify_stradivarius** | Apify (10.1.0.7) | Еженедельно | Вс 05:00 | Метаданные Stradivarius |
-| **apify_massimodutti** | Apify (10.1.0.7) | Еженедельно | Вс 06:00 | Метаданные Massimo Dutti |
-| **apify_oysho** | Apify (10.1.0.7) | Еженедельно | Вс 07:00 | Метаданные Oysho |
-| **download_pending** | Photo Downloader (10.1.0.13) | Каждые 15 мин | :00,:15,:30,:45 | Скачать фото pending |
-| **download_retry** | Photo Downloader (10.1.0.13) | Каждый час | :30 | Повтор неудачных |
-| **ximilar_sync** | Ximilar Sync (10.1.0.14) | Еженедельно | Вс 10:00 | Новые SKU → Ximilar Collection |
-| **ximilar_retry** | Ximilar Sync (10.1.0.14) | Ежедневно | 12:00 | Повтор неудачных |
+| **process_collages** | Collage (10.1.0.16) | Каждые 15 мин | :00,:15,:30,:45 | Создание коллажей |
+| **retry_failed** | Collage (10.1.0.16) | Каждый час | :30 | Повтор неудачных |
+| **apify_zara** | Apify (10.1.0.9) | Еженедельно | Вс 02:00 | Метаданные Zara |
+| **apify_bershka** | Apify (10.1.0.9) | Еженедельно | Вс 03:00 | Метаданные Bershka |
+| **apify_pullandbear** | Apify (10.1.0.9) | Еженедельно | Вс 04:00 | Метаданные Pull&Bear |
+| **apify_stradivarius** | Apify (10.1.0.9) | Еженедельно | Вс 05:00 | Метаданные Stradivarius |
+| **apify_massimodutti** | Apify (10.1.0.9) | Еженедельно | Вс 06:00 | Метаданные Massimo Dutti |
+| **apify_oysho** | Apify (10.1.0.9) | Еженедельно | Вс 07:00 | Метаданные Oysho |
+| **download_pending** | Photo Downloader (10.1.0.10) | Каждые 15 мин | :00,:15,:30,:45 | Скачать фото pending |
+| **download_retry** | Photo Downloader (10.1.0.10) | Каждый час | :30 | Повтор неудачных |
+| **ximilar_sync** | Ximilar Sync (10.1.0.11) | Еженедельно | Вс 10:00 | Новые SKU → Ximilar Collection |
+| **ximilar_retry** | Ximilar Sync (10.1.0.11) | Ежедневно | 12:00 | Повтор неудачных |
 | **cleanup_old_data** | Staging DB | Ежедневно | 04:00 | DELETE > 30 дней |
 | **cleanup_temp_files** | Photo Downloader, Collage | Ежедневно | 05:00 | rm /app/data/* |
 | **enrichment_ttl_recovery** | local-orchestrator (10.2.0.17) | Каждые 6 часов | :00 | Сообщения без embedding старше 1ч → force enrich (retry < 3, LIMIT 500). KSP Фикс 14 |
@@ -64,7 +64,7 @@
 ### Prometheus targets
 
 ```yaml
-# /etc/prometheus/prometheus.yml на Monitoring Server (10.1.0.31)
+# /etc/prometheus/prometheus.yml на Monitoring Server (10.1.0.7)
 
 scrape_configs:
   # Существующие...
@@ -72,35 +72,35 @@ scrape_configs:
   # Helsinki batch серверы:
   - job_name: 'node-apify'
     static_configs:
-      - targets: ['10.1.0.7:9100']
+      - targets: ['10.1.0.9:9100']
 
   - job_name: 'node-photo-downloader'
     static_configs:
-      - targets: ['10.1.0.13:9100']
+      - targets: ['10.1.0.10:9100']
 
   - job_name: 'node-ximilar-sync'
     static_configs:
-      - targets: ['10.1.0.14:9100']
+      - targets: ['10.1.0.11:9100']
 
   - job_name: 'node-collage'
     static_configs:
-      - targets: ['10.1.0.8:9100']
+      - targets: ['10.1.0.16:9100']
 
   - job_name: 'node-recognition'
     static_configs:
-      - targets: ['10.1.0.9:9100']
+      - targets: ['10.1.0.14:9100']
 
   - job_name: 'node-ximilar-gw'
     static_configs:
-      - targets: ['10.1.0.15:9100']
+      - targets: ['10.1.0.12:9100']
 
   - job_name: 'node-llm-reranker'
     static_configs:
-      - targets: ['10.1.0.16:9100']
+      - targets: ['10.1.0.13:9100']
 
   - job_name: 'node-staging-db'
     static_configs:
-      - targets: ['10.1.1.3:9100']
+      - targets: ['10.1.0.8:9100']
 
   # Локальные серверы — мониторятся через VPN, см. 07_Server_Layout_v7.md
 
@@ -116,12 +116,12 @@ scrape_configs:
 
   - job_name: 'etcd-cluster'
     static_configs:
-      - targets: ['10.1.1.10:2379', '10.1.1.20:2379']
+      - targets: ['10.1.1.10:2379', '10.1.0.15:2379']
       # dubai-shard-0:2379 — теперь локальный, см. 07_Server_Layout_v7.md
 
   - job_name: 'postgres-staging'
     static_configs:
-      - targets: ['10.1.1.3:9187']
+      - targets: ['10.1.0.8:9187']
 ```
 
 ### Ключевые метрики
@@ -234,20 +234,20 @@ aws s3 ls s3://unde-images --endpoint-url=https://hel1.your-objectstorage.com
 ### День 2: Staging DB
 
 ```bash
-# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.1.3
+# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.0.8
 
 apt update && apt install -y postgresql-17 pgbouncer
 sudo -u postgres createdb unde_staging
 sudo -u postgres psql unde_staging < schema.sql
 
 # Тест
-psql -h 10.1.1.3 -p 6432 -U scraper -d unde_staging
+psql -h 10.1.0.8 -p 6432 -U scraper -d unde_staging
 ```
 
 ### День 3: Apify Server (метаданные)
 
 ```bash
-# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.0.7
+# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.0.9
 
 apt update && apt install -y docker.io docker-compose
 git clone http://gitlab-real.unde.life/unde/apify-collector.git /opt/unde/apify
@@ -262,7 +262,7 @@ docker-compose exec apify-collector python -c "from tasks import collect_brand; 
 ### День 3b: Photo Downloader
 
 ```bash
-# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.0.13
+# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.0.10
 
 apt update && apt install -y docker.io docker-compose
 git clone http://gitlab-real.unde.life/unde/photo-downloader.git /opt/unde/photo-downloader
@@ -277,7 +277,7 @@ docker-compose exec photo-downloader python -c "from tasks import download_pendi
 ### День 3c: Ximilar Sync Server
 
 ```bash
-# Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.14
+# Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.11
 
 apt update && apt install -y docker.io docker-compose
 git clone http://gitlab-real.unde.life/unde/ximilar-sync.git /opt/unde/ximilar-sync
@@ -292,7 +292,7 @@ docker-compose exec ximilar-sync python -c "from tasks import sync_to_ximilar; s
 ### День 4: Collage Server
 
 ```bash
-# Hetzner Console → Создать сервер CPX31 (Helsinki), Private: 10.1.0.8
+# Hetzner Console → Создать сервер CPX31 (Helsinki), Private: 10.1.0.16
 
 apt update && apt install -y docker.io docker-compose
 git clone http://gitlab-real.unde.life/unde/collage-server.git /opt/unde/collage
@@ -308,7 +308,7 @@ docker-compose exec collage-worker python -c "from tasks import process_product;
 
 ```bash
 # 1. Ximilar Gateway
-# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.0.15
+# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.0.12
 
 apt update && apt install -y docker.io docker-compose
 git clone http://gitlab-real.unde.life/unde/ximilar-gw.git /opt/unde/ximilar-gw
@@ -317,11 +317,11 @@ cp .env.example .env  # Заполнить: XIMILAR_API_TOKEN, XIMILAR_COLLECTIO
 docker-compose up -d
 
 # Тест
-curl -X POST http://10.1.0.15:8001/detect -H "Content-Type: application/json" \
+curl -X POST http://10.1.0.12:8001/detect -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/test-photo.jpg"}'
 
 # 2. LLM Reranker
-# Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.16
+# Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.13
 
 apt update && apt install -y docker.io docker-compose
 git clone http://gitlab-real.unde.life/unde/llm-reranker.git /opt/unde/llm-reranker
@@ -330,11 +330,11 @@ cp .env.example .env  # Заполнить: GEMINI_API_KEY, CLAUDE_API_KEY
 docker-compose up -d
 
 # Тест
-curl -X POST http://10.1.0.16:8002/tag -H "Content-Type: application/json" \
+curl -X POST http://10.1.0.13:8002/tag -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/test-crop.jpg"}'
 
 # 3. Recognition Orchestrator
-# Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.9
+# Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.14
 
 apt update && apt install -y docker.io docker-compose
 git clone http://gitlab-real.unde.life/unde/recognition.git /opt/unde/recognition
@@ -513,7 +513,7 @@ curl -X POST http://10.1.0.19:8080/context \
 #    Private IP: 10.1.1.10
 
 # 3. Заказать Hetzner CPX11 (etcd-3 node) — ~€4/мес
-#    Private IP: 10.1.1.20
+#    Private IP: 10.1.0.15
 
 # === ФАЗА 2: Настройка Dubai Primary ===
 
@@ -557,7 +557,7 @@ python3 -c "import secrets, base64; print(base64.b64encode(secrets.token_bytes(3
 # 12. Установить etcd на 3 узла:
 #     etcd-1: контейнер на Dubai app-сервере
 #     etcd-2: контейнер на Hetzner AX102
-#     etcd-3: Hetzner CPX11 (10.1.1.20)
+#     etcd-3: Hetzner CPX11 (10.1.0.15)
 
 # 13. Установить Patroni на Dubai primary и Hetzner replica
 #     Dubai: failover_priority=2 (preferred primary)
@@ -605,23 +605,23 @@ EOF
                         ▼
 ┌───────────────────────────────────────────────────────────┐
 │  HETZNER HELSINKI (private network):                        │
-│  Apify (10.1.0.7)        — только private network         │
-│  Photo Downloader (10.1.0.13) — только private network*   │
-│  Ximilar Sync (10.1.0.14)    — только private network*    │
+│  Apify (10.1.0.9)        — только private network         │
+│  Photo Downloader (10.1.0.10) — только private network*   │
+│  Ximilar Sync (10.1.0.11)    — только private network*    │
 │  Scraper (10.1.0.3)      — только private network         │
-│  Collage (10.1.0.8)      — только private network         │
-│  Recognition (10.1.0.9)  — только private network         │
-│  Ximilar GW (10.1.0.15) — только private network*         │
-│  LLM Reranker (10.1.0.16) — только private network*       │
+│  Collage (10.1.0.16)      — только private network         │
+│  Recognition (10.1.0.14)  — только private network         │
+│  Ximilar GW (10.1.0.12) — только private network*         │
+│  LLM Reranker (10.1.0.13) — только private network*       │
 │  LLM Orchestrator (10.1.0.17) — только private network*   │
 │  Mood Agent (10.1.0.11)  — только private network*        │
 │  Voice (10.1.0.12)       — только private network*        │
 │  Context Agent (10.1.0.19) — только private network*      │
 │  Persona Agent (10.1.0.21) — только private network*      │
-│  Staging DB (10.1.1.3)   — только private network         │
+│  Staging DB (10.1.0.8)   — только private network         │
 │  Production DB (10.1.1.2) — только private network        │
 │  Shard Replica (10.1.1.10) — только private network       │
-│  etcd-3 (10.1.1.20)      — только private network        │
+│  etcd-3 (10.1.0.15)      — только private network        │
 │                                                            │
 │  DUBAI (bare metal, private + VPN к Hetzner):              │
 │  Local Shard Primary     — private network + VPN           │

@@ -892,12 +892,12 @@ CONSULTANT SERVER (10.2.0.22, Локальный сервер)
 
 ### Что НЕ делает LLM Orchestrator
 
-- ❌ Recognition pipeline (это Recognition Orchestrator, 10.1.0.9)
+- ❌ Recognition pipeline (это Recognition Orchestrator, 10.1.0.14)
 - ❌ Эмоциональный анализ (это Mood Agent, 10.2.0.11)
 - ❌ Синтез речи (это Voice Server, 10.2.0.12)
 - ❌ Контекст реального мира (это Context Agent, 10.2.0.19)
 - ❌ Fashion-рекомендации напрямую (это Consultant — Intelistyle на MVP, свой Consultant LLM на Фазе 2)
-- ❌ Реранкинг/тегинг товаров (это LLM Reranker, 10.1.0.16)
+- ❌ Реранкинг/тегинг товаров (это LLM Reranker, 10.1.0.13)
 
 ### Почему Local (8 vCPU / 16 GB)
 
