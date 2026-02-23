@@ -83,7 +83,8 @@
 │  Bucket: user-media │ │      ├── collage_url (→ /collages/)  │
 │  └── /{user_id}/    │ │      └── availability (JSONB)        │
 │                     │ │  └── routing_table (user → shard)    │
-│  Bucket: backups    │ │  └── deleted_messages_registry       │
+│  Bucket:            │
+│  unde-shard-backups │ │  └── deleted_messages_registry       │
 │  └── /shard-N/      │ └─────────────────┬────────────────────┘
 └─────────────────────┘                   │
                      ┌─────────────────────┼──────────────────────┐
@@ -190,13 +191,13 @@
 | H12 | **ximilar-gw** | 10.1.0.12 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Создан |
 | H13 | **llm-reranker** | 10.1.0.13 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Создан |
 | H14 | **staging-db** | 10.1.0.8 | CPX22 | €12 | PostgreSQL staging | ✅ Создан |
-| H15 | **shard-replica-0** | 10.1.1.10 | CCX23 (4 vCPU / 16 GB) | €39 | Hot standby replica шарда 0 (Patroni) | 🆕 Создать |
+| H15 | **shard-replica-0** | 10.1.1.10 | Dedicated (Xeon, 64 GB, NVMe) | ~€39 | Hot standby replica шарда 0 (Patroni) | ✅ Создан |
 | H16 | **etcd-2** | на shard-replica-0 | контейнер | €0 | etcd quorum node 2 | 🆕 Создать |
 | H17 | **etcd-3** | 10.1.0.15 | CX23 | €4 | etcd quorum node 3 (tiebreaker) | ✅ Создан |
-| H18 | **posthog** | 10.1.0.30 | CCX33 (8 vCPU / 32 GB) | €74 | PostHog self-hosted: product analytics | 🆕 Создать |
+| H18 | **posthog** | 10.1.1.30 | Dedicated (Xeon, 64 GB, SATA) | ~€39 | PostHog self-hosted: product analytics | ✅ Создан |
 | H19 | **monitoring** | 10.1.0.7 | CX33 | €25 | Prometheus + Grafana + Alertmanager | ✅ Создан |
 | H20 | **helsinki-gw** | 10.1.0.40 | CPX22 (2 vCPU / 4 GB) | €12 | Firewall/Router: Debian 12 + MikroTik CHR. WireGuard endpoint | 🆕 Создать |
-| — | **Object Storage** | — | S3-compatible | ~€10 | unde-images, unde-user-media, backups | 🆕 Создать |
+| — | **Object Storage** | hel1.your-objectstorage.com | S3-compatible | ~€10 | unde-images ✅, unde-user-media ✅, unde-shard-backups ✅ | ✅ Создан |
 
 ---
 

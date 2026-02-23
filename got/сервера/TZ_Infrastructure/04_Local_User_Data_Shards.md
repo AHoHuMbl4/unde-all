@@ -6,7 +6,7 @@
 
 ## 14. LOCAL USER DATA SHARDS (обновлено v7.2 — локальные серверы вместо Dubai bare metal)
 
-> **Архитектурное решение:** Chat History и User Knowledge объединены на одном шарде. Primary на локальном сервере (16 vCPU / 32 GB RAM, NVMe SSD). Hetzner CCX23 — hot standby replica. Связь через WireGuard туннели. Это решение из документов UNDE_Infrastructure_BD и UNDE_Smart_Context_Architecture.
+> **Архитектурное решение:** Chat History и User Knowledge объединены на одном шарде. Primary на локальном сервере (16 vCPU / 32 GB RAM, NVMe SSD). Dedicated (Xeon E3-1275V6, 64 GB RAM, 2×NVMe 512 GB) — hot standby replica. Связь через WireGuard туннели. Это решение из документов UNDE_Infrastructure_BD и UNDE_Smart_Context_Architecture.
 
 ### Информация (Primary — Локальный сервер)
 
@@ -27,7 +27,7 @@
 |----------|----------|
 | **Hostname** | shard-replica-0 |
 | **Private IP** | 10.1.1.10 |
-| **Тип** | Hetzner CCX23 |
+| **Тип** | Dedicated (Xeon E3-1275V6, 64 GB, 2×NVMe 512 GB) |
 | **vCPU** | 4 |
 | **RAM** | 16 GB |
 | **Стоимость** | €39/мес |
