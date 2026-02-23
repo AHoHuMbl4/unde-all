@@ -20,7 +20,7 @@
 
 | Задача | Частота | Описание |
 |--------|---------|----------|
-| **availability_poll** | Каждый час (:00) | Mobile API → Staging DB (наличие в магазинах KZ) |
+| **availability_poll** | Каждый час (:00) | Mobile API → Staging DB (наличие в магазинах Dubai) |
 | **sync_to_production** | Каждый час (:10) | Staging DB → Production DB (verified данные) |
 
 ### Что НЕ делает
@@ -43,8 +43,8 @@ PRODUCTION_DB_URL=postgresql://undeuser:xxx@10.1.1.2:6432/unde_main
 # Mobile API
 ZARA_USER_AGENT=ZaraApp/15.10.0 ...
 
-# Kazakhstan stores
-KZ_ZARA_STORES=6643,9204,9073,16546
+# Dubai stores
+DUBAI_ZARA_STORES=PLACEHOLDER_STORE_IDS
 ```
 
 ---
@@ -57,10 +57,10 @@ KZ_ZARA_STORES=6643,9204,9073,16546
 |----------|----------|
 | **Hostname** | apify |
 | **Private IP** | 10.1.0.9 |
-| **Тип** | Hetzner CPX21 |
-| **vCPU** | 3 |
+| **Тип** | Hetzner CX23 |
+| **vCPU** | 2 |
 | **RAM** | 4 GB |
-| **Disk** | 80 GB NVMe |
+| **Disk** | 40 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
 
 ### Назначение
@@ -131,30 +131,110 @@ STAGING_DB_URL=postgresql://apify:xxx@10.1.0.8:6432/unde_staging
 REDIS_URL=redis://:xxx@10.1.0.4:6379/7
 ```
 
+### Интеграция с Apify
+
+**Паттерн:** Используем Apify Tasks (не актор напрямую). Task — преднастроенный запуск актора
+с зафиксированными параметрами (URL, maxItems, region). Создаётся через UI Apify.
+
+**Актор:** `datasaurus/zara` (и аналогичные для других брендов).
+
+```python
+# celery_app.py — маппинг бренд → Apify Task ID
+BRAND_TASKS = {
+    "zara": "z1psVOTyIKFdU5N9n",
+    # "bershka": "TASK_ID_HERE",       # TODO: создать Task в Apify UI
+    # "pullandbear": "TASK_ID_HERE",
+    # "stradivarius": "TASK_ID_HERE",
+    # "massimodutti": "TASK_ID_HERE",
+    # "oysho": "TASK_ID_HERE",
+}
+```
+
+### Формат данных от Apify (datasaurus/zara)
+
+```json
+{
+  "id": 512913640,
+  "reference": "02086797-V2026",
+  "brand": "Zara",
+  "name": "ZW COLLECTION ASYMMETRIC BLAZER",
+  "description": "Blazer with a notched lapel collar...",
+  "price": 69900,                    // ← в филсах! AED = price / 100 → 699.00
+  "category": "woman-outerwear-padded",
+  "colors": "Black",
+  "sizes": "XS, S, M, L",
+  "detailedComposition": { "parts": [...] },
+  "colorsSizesImagesJSON": [         // ← массив по цветам
+    {
+      "id": "800",                   // color ID
+      "name": "Black",
+      "productId": 512918856,
+      "xmedia": [                    // ← URL фото с {width} плейсхолдером
+        "https://static.zara.net/.../02086797800-p.jpg?w={width}",
+        "https://static.zara.net/.../02086797800-e1.jpg?w={width}",
+        "https://static.zara.net/.../02086797800-e2.jpg?w={width}",
+        "https://static.zara.net/.../02086797800-e3.jpg?w={width}"
+      ],
+      "sizes": [
+        { "name": "XS", "sku": 512913641, "availability": "in_stock", "price": 69900 },
+        { "name": "S",  "sku": 512913642, "availability": "in_stock", "price": 69900 }
+      ]
+    }
+  ]
+}
+```
+
 ### Процесс сбора данных
 
 ```python
-# Псевдокод
+from apify_client import ApifyClient
 
-def collect_brand(brand: str):
-    # 1. Запустить Apify scraper
-    run = apify.call(f"datasaurus/{brand}", {
-        "startUrls": [f"https://www.{brand}.com/kz/en/"],
-        "maxItems": 20000
-    })
-    
+def collect_brand(brand: str, task_id: str):
+    client = ApifyClient(os.environ["APIFY_TOKEN"])
+
+    # 1. Запустить преднастроенный Task (не actor.call!)
+    task_client = client.task(task_id)
+    run = task_client.call()  # блокирующий вызов, ждёт завершения
+
     # 2. Получить результаты
-    items = apify.get_dataset_items(run["defaultDatasetId"])
-    
-    for item in items:
-        # 3. Записать метаданные в Staging DB (фото НЕ скачиваем)
+    dataset = client.dataset(run["defaultDatasetId"])
+
+    for item in dataset.iterate_items():
+        # 3. Извлечь фото URL'ы из всех цветов
+        photo_urls = []
+        for color in item.get("colorsSizesImagesJSON", []):
+            for url in color.get("xmedia", [])[:5]:
+                # Заменить {width} на конкретный размер
+                photo_urls.append(url.replace("{width}", "1920"))
+
+        # 4. Цена: fils → AED (÷100)
+        price_aed = item["price"] / 100 if item.get("price") else None
+
+        # 5. Записать в Staging DB (фото НЕ скачиваем, только URL'ы)
         db.execute("""
             INSERT INTO raw_products (source, external_id, brand, name, price,
-                                      original_image_urls, image_status, ...)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ...)
-            ON CONFLICT (source, external_id) DO UPDATE SET ...
-        """, f"apify_{brand}", item["id"], brand, item["name"],
-             item["price"], json.dumps(item["images"]), ...)
+                                      currency, category, colour, sizes,
+                                      composition, description,
+                                      original_image_urls, image_status,
+                                      raw_data, scraped_at)
+            VALUES (%s, %s, %s, %s, %s,
+                    'AED', %s, %s, %s,
+                    %s, %s,
+                    %s, 'pending',
+                    %s, NOW())
+            ON CONFLICT (source, external_id) DO UPDATE SET
+                name = EXCLUDED.name,
+                price = EXCLUDED.price,
+                original_image_urls = EXCLUDED.original_image_urls,
+                raw_data = EXCLUDED.raw_data,
+                scraped_at = EXCLUDED.scraped_at,
+                updated_at = NOW()
+        """, f"apify_{brand}", str(item["id"]), brand, item["name"],
+             price_aed, item.get("category"), item.get("colors"),
+             json.dumps(item.get("sizes", "")),
+             json.dumps(item.get("detailedComposition")),
+             item.get("description"),
+             json.dumps(photo_urls), json.dumps(item))
 ```
 
 ### Структура директорий
@@ -192,10 +272,10 @@ def collect_brand(brand: str):
 |----------|----------|
 | **Hostname** | photo-downloader |
 | **Private IP** | 10.1.0.10 |
-| **Тип** | Hetzner CPX21 |
-| **vCPU** | 3 |
+| **Тип** | Hetzner CX23 |
+| **vCPU** | 2 |
 | **RAM** | 4 GB |
-| **Disk** | 80 GB NVMe |
+| **Disk** | 40 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
 
 ### Назначение
@@ -347,9 +427,9 @@ def download_pending():
 |----------|----------|
 | **Hostname** | ximilar-sync |
 | **Private IP** | 10.1.0.11 |
-| **Тип** | Hetzner CPX11 |
+| **Тип** | Hetzner CX23 |
 | **vCPU** | 2 |
-| **RAM** | 2 GB |
+| **RAM** | 4 GB |
 | **Disk** | 40 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
 
@@ -499,10 +579,10 @@ def sync_to_ximilar():
 |----------|----------|
 | **Hostname** | collage |
 | **Private IP** | 10.1.0.16 |
-| **Тип** | Hetzner CPX31 |
+| **Тип** | Hetzner CX33 |
 | **vCPU** | 4 |
 | **RAM** | 8 GB |
-| **Disk** | 160 GB NVMe |
+| **Disk** | 80 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
 
 ### Назначение
@@ -626,7 +706,7 @@ def process_product(product_id: int):
 |----------|----------|
 | **Hostname** | staging-db |
 | **Private IP** | 10.1.0.8 |
-| **Тип** | Hetzner CPX21 |
+| **Тип** | Hetzner CPX22 |
 | **vCPU** | 3 |
 | **RAM** | 4 GB |
 | **Disk** | 80 GB NVMe |
@@ -656,7 +736,7 @@ CREATE TABLE raw_products (
     name TEXT,
     description TEXT,
     price DECIMAL(10,2),
-    currency VARCHAR(10) DEFAULT 'KZT',
+    currency VARCHAR(10) DEFAULT 'AED',
     category TEXT,
     colour VARCHAR(100),
     sizes JSONB,
@@ -707,15 +787,15 @@ $$ LANGUAGE SQL IMMUTABLE;
 CREATE UNIQUE INDEX idx_raw_availability_unique_daily
     ON raw_availability(brand, store_id, product_id, to_date_immutable(fetched_at));
 
--- Физические магазины Казахстана
+-- Физические магазины Dubai
 CREATE TABLE raw_stores (
     id SERIAL PRIMARY KEY,
     brand VARCHAR(50) NOT NULL,
     store_id INTEGER NOT NULL,
     name TEXT,
     address TEXT,
-    city VARCHAR(100) DEFAULT 'Almaty',
-    country VARCHAR(10) DEFAULT 'KZ',
+    city VARCHAR(100) DEFAULT 'Dubai',
+    country VARCHAR(10) DEFAULT 'AE',
     mall_name TEXT,
     latitude DECIMAL(10,7),
     longitude DECIMAL(10,7),
@@ -852,7 +932,7 @@ unde-images/
 Коллаж:    https://unde-images.hel1.your-objectstorage.com/collages/zara/495689099.jpg
 ```
 
-### Расчёт объёма (MVP — KZ, Inditex)
+### Расчёт объёма (MVP — Dubai, Inditex)
 
 | Бренд | Товаров | Оригиналы (5x300KB) | Коллажи (700KB) | Итого |
 |-------|---------|---------------------|-----------------|-------|
