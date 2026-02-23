@@ -1,24 +1,25 @@
-# UNDE Infrastructure — Dubai User Data Shard
+# UNDE Infrastructure — Local User Data Shards
 
-*Часть [TZ Infrastructure v6.2](../TZ_Infrastructure_Final.md). Primary DB: Chat History + User Knowledge + Persona.*
+*Часть [TZ Infrastructure v7.2](07_Server_Layout_v7.md). Primary DB: Chat History + User Knowledge + Persona.*
 
 ---
 
-## 14. DUBAI USER DATA SHARD (новый — заменяет отдельные Chat History DB и User Knowledge DB)
+## 14. LOCAL USER DATA SHARDS (обновлено v7.2 — локальные серверы вместо Dubai bare metal)
 
-> **Архитектурное решение:** Chat History и User Knowledge объединены на одном шарде (Dubai bare metal primary). Hetzner AX102 — hot standby replica. Это решение из документов UNDE_Infrastructure_BD и UNDE_Smart_Context_Architecture.
+> **Архитектурное решение:** Chat History и User Knowledge объединены на одном шарде. Primary на локальном сервере (16 vCPU / 32 GB RAM, NVMe SSD). Hetzner CCX23 — hot standby replica. Связь через WireGuard туннели. Это решение из документов UNDE_Infrastructure_BD и UNDE_Smart_Context_Architecture.
 
-### Информация (Primary — Dubai bare metal)
+### Информация (Primary — Локальный сервер)
 
 | Параметр | Значение |
 |----------|----------|
-| **Hostname** | dubai-shard-0 |
-| **Локация** | Dubai (Tier 3-4 DC: AEserver / ASPGulf) |
-| **Тип** | Bare metal dedicated server (аренда, Фаза 1) → colocation (Фаза 2+) |
-| **CPU** | 2× EPYC 7413 (24c/48t) |
-| **RAM** | 256 GB DDR4 ECC |
-| **Disk** | 2× 2TB NVMe |
-| **OS** | Ubuntu 24.04 LTS |
+| **Hostname** | local-shard-0 |
+| **WireGuard IP** | 10.2.0.10 |
+| **Локация** | Локально (рядом с юзерами, <5ms RTT) |
+| **Тип** | VPS / Cloud (провайдер определяется по локации) |
+| **vCPU** | 16 |
+| **RAM** | 32 GB |
+| **Disk** | NVMe SSD |
+| **OS** | Debian 12 / Ubuntu 24.04 LTS |
 
 ### Информация (Replica — Hetzner Helsinki)
 
@@ -26,28 +27,23 @@
 |----------|----------|
 | **Hostname** | shard-replica-0 |
 | **Private IP** | 10.1.1.10 |
-| **Тип** | Hetzner AX102 |
-| **RAM** | 128 GB |
-| **Disk** | 2× 2TB NVMe |
-| **Стоимость** | $128/мес |
+| **Тип** | Hetzner CCX23 |
+| **vCPU** | 4 |
+| **RAM** | 16 GB |
+| **Стоимость** | €39/мес |
 
-### RAM Disk Architecture (Primary)
+### RAM Architecture (Primary, 32 GB)
 
 ```
-256 GB RAM распределение:
-├── tmpfs /pgdata/base         — 140 GB  (таблицы + HNSW индексы)
-├── NVMe  /pgdata/pg_wal       — на диске (WAL с fsync, durability)
-├── PostgreSQL shared_buffers  — 32 GB   (internal caching)
-├── work_mem × connections     — 8 GB    (200 conn × 40 MB)
-├── OS + PostgreSQL processes  — 8 GB
-├── Резерв для роста           — 68 GB
-└── ИТОГО                      — 256 GB
+32 GB RAM распределение:
+├── PostgreSQL shared_buffers  — 8 GB    (25% RAM)
+├── OS page cache              — ~16 GB  (effective_cache_size 24 GB включая shared_buffers)
+├── work_mem × connections     — 4 GB    (100 conn × 40 MB)
+├── OS + PostgreSQL processes  — 4 GB
+└── ИТОГО                      — 32 GB
 ```
 
-**Почему не всё на tmpfs:** WAL на NVMe обеспечивает crash recovery. При сбое питания:
-- Данные в tmpfs потеряны → восстанавливаются из WAL + replica
-- WAL на NVMe сохранён → PostgreSQL применяет его автоматически при запуске
-- Или pg_basebackup с Hetzner replica если WAL неполный
+**NVMe SSD вместо tmpfs:** Данные на NVMe, hot working set в OS page cache. При стабильной нагрузке (500–800 юзеров/шард) весь working set (~11–18 GB HNSW + heap) помещается в effective_cache_size + shared_buffers. Кеш тёплый — деградация только при cold start или spike.
 
 ### Назначение
 
@@ -66,13 +62,13 @@
 - Зашифрованы AES-256-GCM (application-level envelope encryption)
 - Ключи шифрования (DEK) в таблице user_keys на том же шарде
 
-### Почему bare metal в Dubai (а не Hetzner)
+### Почему локальный сервер (а не Helsinki)
 
-- **Latency:** <1ms для Dubai users (vs 120ms до Hetzner)
-- **RAM disk:** tmpfs — sub-microsecond reads для HNSW index (vs 2-5ms NVMe)
-- **Noisy neighbors:** нет (bare metal vs shared cloud)
-- **Kernel tuning:** полный контроль (huge pages, tmpfs, swappiness)
-- **Стоимость:** $400-600/мес dedicated vs $724 OCI Dubai vs $1,766 Azure UAE
+- **Latency:** <5ms для юзеров (vs 120ms до Helsinki)
+- **1 сервер = 1 задача:** Шард изолирован на отдельном сервере
+- **Масштабирование:** Добавить шард = добавить сервер 16 vCPU / 32 GB (~$50–80/мес)
+- **NVMe SSD + page cache:** 2–5 ms hybrid search (hot cache) — достаточно для voice-first UX
+- **Нет SPOF:** Падение одного шарда ≠ падение всего (vs всё на одном bare metal)
 
 ### Почему Chat History + User Knowledge на одном шарде
 
@@ -551,110 +547,103 @@ VALUES ($1, $2, NOW());
 
 **Tombstone Registry** хранится в Production DB (primary) + Object Storage (copy). После любого восстановления шарда — `apply_deletions.sql` на основе registry.
 
-### Конфигурация PostgreSQL (Dubai Primary — RAM disk)
+### Конфигурация PostgreSQL (Local Primary — NVMe SSD, 32 GB RAM)
 
 ```ini
-# postgresql.conf — оптимизация для tmpfs + NVMe WAL
-
-# Пути
-data_directory = '/pgdata'          # tmpfs mount
-# pg_wal символическая ссылка на /nvme/pg_wal (NVMe)
-
-# Durability: fsync только для WAL (на NVMe)
-fsync = on                          # WAL на NVMe → fsync имеет смысл
-synchronous_commit = local          # WAL flush на NVMe перед ack клиенту
-full_page_writes = on               # Нужен для корректности WAL-цепочки на реплике
-
-# Планировщик: всё в памяти
-random_page_cost = 0.01             # random = sequential (нет диска)
-seq_page_cost = 0.01
-effective_cache_size = 140GB        # Размер tmpfs
-effective_io_concurrency = 0        # Нет async I/O нужен
+# postgresql.conf — оптимизация для 32 GB RAM, NVMe SSD
 
 # Буферы
-shared_buffers = 32GB               # PG internal caching (нужен даже с tmpfs)
+shared_buffers = 8GB                # 25% RAM
+effective_cache_size = 24GB         # 75% RAM (OS page cache)
 work_mem = 40MB
-maintenance_work_mem = 4GB          # Для REINDEX, VACUUM
+maintenance_work_mem = 2GB
 wal_buffers = 64MB
 
+# Планировщик: NVMe SSD
+random_page_cost = 1.1              # NVMe ≈ sequential
+seq_page_cost = 1.0
+effective_io_concurrency = 200      # NVMe parallel IO
+
+# Durability
+fsync = on
+synchronous_commit = local          # WAL flush перед ack
+full_page_writes = on               # Для корректности WAL на реплике
+
 # WAL
-wal_level = replica                 # Нужен для streaming replication
+wal_level = replica
 max_wal_senders = 5
-wal_keep_size = 8GB
+wal_keep_size = 4GB
 max_replication_slots = 5
-checkpoint_timeout = 15min
-max_wal_size = 4GB
+checkpoint_timeout = 10min
+max_wal_size = 2GB
 
-# Huge pages (bare metal only)
-huge_pages = on                     # 2MB pages → меньше TLB misses
+# Connections (через PgBouncer)
+max_connections = 100
 
-# Archiving (для PITR backup)
+# Archive (для PITR backup)
 archive_mode = on
-archive_command = 'test ! -f /nvme/wal_archive/%f && cp %p /nvme/wal_archive/%f'
+archive_command = 'pgbackrest --stanza=shard0 archive-push %p'
 ```
 
-### Системная конфигурация (Dubai Primary)
+### Системная конфигурация (Local Primary)
 
 ```bash
-# /etc/fstab — tmpfs для PostgreSQL данных
-tmpfs /pgdata tmpfs defaults,size=160G,noatime,mode=0700,uid=postgres,gid=postgres 0 0
-
-# /etc/sysctl.conf — huge pages для shared_buffers
-vm.nr_hugepages = 17000            # 32GB shared_buffers + overhead
-vm.hugetlb_shm_group = 999         # postgres group ID
+# /etc/sysctl.conf
 vm.swappiness = 1                   # Минимальный swap
-
-# Символическая ссылка WAL на NVMe
-ln -s /nvme/pg_wal /pgdata/pg_wal
+vm.dirty_background_ratio = 5       # Фоновая запись при 5% dirty pages
+vm.dirty_ratio = 10                 # Синхронная запись при 10% dirty pages
 ```
 
-### Streaming Replication: Dubai → Hetzner
+### Streaming Replication: Local → Hetzner (через WireGuard)
 
 ```
 Время 0.000s: Пользователь отправляет сообщение
-Время 0.002s: PostgreSQL (Dubai, tmpfs) выполняет INSERT
+Время 0.002s: PostgreSQL (local-shard-0, NVMe) выполняет INSERT
               → WAL-запись создана
-              → Данные записаны в tmpfs (мгновенно)
-              → WAL пишется на NVMe (фоновый flush)
+              → Данные записаны на NVMe (fsync)
               → Клиенту возвращён ответ "OK"
-Время 0.003s: WAL sender отправляет запись по сети в Hetzner
-              ... 120ms через подводные кабели ...
-Время 0.123s: PostgreSQL (Hetzner, NVMe) получает WAL
+Время 0.003s: WAL sender отправляет запись через WireGuard туннель (wg-shard0)
+              ... ~120ms через зашифрованный туннель ...
+Время 0.123s: PostgreSQL (shard-replica-0, Hetzner) получает WAL
               → Записывает на NVMe (с fsync)
               → Применяет изменение (WAL replay)
 ```
 
 **Async replication:** primary не ждёт подтверждения от replica → минимальная latency для клиента.
 
+**WireGuard туннель:** Каждый шард имеет свой WireGuard туннель до helsinki-gw (10.1.0.40). WAL streaming — основной потребитель трафика (~1–10 GB/день).
+
 ### Patroni + etcd: автоматический failover
 
 **3 узла etcd:**
 
-| Узел | Локация | Тип | Зачем |
-|------|---------|-----|-------|
-| etcd-1 | Dubai (dedicated server) | Lightweight VM / контейнер | Локальный голос для primary |
-| etcd-2 | Hetzner Helsinki (AX102) | Контейнер на replica-сервере | Голос replica |
-| etcd-3 | Hetzner Helsinki (CPX11) | Dedicated lightweight (~€4/мес) | Кворум: 2 из 3 в Hetzner |
+| Узел | Локация | Тип | IP | Зачем |
+|------|---------|-----|-----|-------|
+| etcd-1 | Локально (local-etcd-1) | 1 vCPU / 2 GB | 10.2.0.50 | Локальный голос для primary |
+| etcd-2 | Hetzner Helsinki (на shard-replica-0) | Контейнер | 10.1.1.10 | Голос replica |
+| etcd-3 | Hetzner Helsinki (CPX11) | Dedicated (~€4/мес) | 10.1.1.20 | Кворум: 2 из 3 в Hetzner |
 
 **Логика кворума:**
-- Dubai жив + любой Hetzner → кворум есть, Dubai = primary (норма)
-- Dubai упал → 2 Hetzner из 3 = кворум, Hetzner promoted (failover)
-- Hetzner-сеть упала → Dubai один, нет кворума → Patroni НЕ позволяет Dubai работать → fencing
+- Локальный сервер жив + любой Hetzner → кворум есть, local = primary (норма)
+- Локальный упал → 2 Hetzner из 3 = кворум, Hetzner promoted (failover)
+- Hetzner-сеть упала → локальный один, нет кворума → Patroni НЕ позволяет local работать → fencing
 
 ```
 Failover timeline:
-00:00.000  — Сервер в Дубае погас
+00:00.000  — Локальный шард недоступен
 00:05.000  — Patroni на Hetzner: "Primary не отвечает 5 секунд"
 00:10.000  — Patroni: "Подожду ещё 5 сек"
 00:15.000  — Patroni: "Primary мёртв" → pg_ctl promote на Hetzner
-00:15.500  — Patroni обновляет etcd → HAProxy/PgBouncer переключаются
-00:16.000  — Система работает через Hetzner (latency 120ms вместо <1ms)
+00:15.500  — Patroni обновляет etcd → local-redis обновляет routing
+00:16.000  — Система работает через Hetzner (latency +120ms для юзеров шарда)
 
 RTO (время простоя): ~15–30 секунд
 RPO (потеря данных): 0 на уровне пар — client-side verify-and-replay
 ```
 
 **Failback policy:** failover auto, failback — ТОЛЬКО вручную, после проверки: lag=0, health green ≥ 10 мин, инженер подтвердил.
+
+> **Подробнее о failover сценариях** — см. [07_Server_Layout_v7.md](07_Server_Layout_v7.md#failover-сценарии)
 
 ### Client-Side Verify-and-Replay
 
@@ -664,8 +653,8 @@ RPO (потеря данных): 0 на уровне пар — client-side veri
 
 ```
 Нормальный режим:
-  App → Dubai primary: message + UUID (client-generated)
-  Dubai primary: INSERT → WAL flush на NVMe → ack
+  App → local-shard primary: message + UUID (client-generated)
+  local-shard primary: INSERT → WAL flush на NVMe → ack
   App: status "confirmed"
 
 Сбой (ack не дошёл):
@@ -693,29 +682,33 @@ RPO (потеря данных): 0 на уровне пар — client-side veri
 Routing (в Redis / Production DB):
   user_id → hash(user_id) % N_shards → shard_id → connection string
 
-Вместимость одного шарда (256 GB RAM, 140 GB tmpfs):
-  Год 1: ~2,500 users/шард (HNSW ~56 GB + heap ~60 GB = ~116 GB)
-  Год 3: ~1,500 users/шард (HNSW ~101 GB + heap ~35 GB = ~136 GB)
+Вместимость одного шарда (32 GB RAM, NVMe SSD):
+  shared_buffers = 8 GB, effective_cache_size = 24 GB
+  Комфортная ёмкость: ~500–800 юзеров/шард (1 год данных)
+  HNSW индекс на 500 юзеров ≈ ~11 GB (через 1 год)
 
 Триггер для нового шарда:
-  SELECT pg_relation_size('idx_embeddings_hnsw') > 80 GB
-  (50% от available working set)
+  SELECT pg_relation_size('idx_messages_embedding') > 20 GB
 ```
 
-**Roadmap:**
-- Месяц 1–6: 1 шард (до 5,000 users)
-- Месяц 6–12: 2 шарда (до 10,000 users)
-- Год 2: 4 шарда
-- Год 3: 6–7 шардов
+**Roadmap масштабирования:**
+
+| Этап | MAU | Шарды | Доп. серверы |
+|------|-----|-------|-------------|
+| Старт | 0–800 | 1 (local-shard-0) | — |
+| 5K | ~800–2,000 | 2 | + local-shard-1 |
+| 10K | ~2,000–4,000 | 4 | + local-shard-2, 3 |
+| 25K | ~4,000–10,000 | 8 | + local-shard-4..7 |
+| 50K | ~10,000–20,000 | 16 | + local-shard-8..15 |
 
 ### Backup стратегия (4 уровня)
 
 ```
 Уровень 1: WAL на NVMe (local crash recovery)
   → Защищает от: PostgreSQL process crash, OOM kill, soft failures
-  → НЕ защищает от: reboot, сбой питания (tmpfs = пустой)
+  → Данные на NVMe сохранены при reboot
 
-Уровень 2: Streaming replication на Hetzner (real-time)
+Уровень 2: Streaming replication на Hetzner (real-time, через WireGuard)
   → RPO: 0 (client-side verify-and-replay)
   → RTO: 15–30 секунд (Patroni)
 
@@ -728,28 +721,23 @@ Routing (в Redis / Production DB):
   → Хранение: 7 дней daily + 4 недели weekly + 3 месяца monthly
 ```
 
-**Локальный snapshot на NVMe в Dubai:**
-- pg_basebackup каждые 2 часа (cron, --compress=lz4)
-- Restore с локального NVMe в 10–50× быстрее чем с Hetzner
-- RTO: 5–10 минут вместо часов
-
 ### Восстановление primary после сбоя
 
 ```
-1. DC починил питание / заменён компонент
-2. Сервер загрузился, tmpfs пустой
+1. Локальный сервер восстановлен / заменён
+2. Данные на NVMe сохранены (в отличие от tmpfs)
 
-3. Вариант A: Локальный snapshot (быстрый, рекомендуемый)
-   → Копируем с NVMe в tmpfs: 50 GB за ~1 мин, 200 GB за ~4 мин
-   → Догоняем по WAL с Hetzner (секунды)
-   → RTO: 5–10 минут
+3. Вариант A: Локальные данные на месте (рекомендуемый)
+   → PostgreSQL стартует, применяет WAL
+   → Догоняет по WAL с Hetzner через WireGuard (секунды)
+   → RTO: 1–5 минут
 
-   Вариант B: С Hetzner replica
-   → pg_basebackup -h hetzner-ip -D /pgdata -Fp -Xs -P
-   → 1 Gbps: 50 GB за ~7 мин, 200 GB за ~27 мин
-   → RTO: 7 минут – 4 часа
+   Вариант B: С Hetzner replica (если NVMe повреждён)
+   → pg_basebackup -h 10.1.1.10 -D /var/lib/postgresql/17/main -Fp -Xs -P
+   → Через WireGuard: скорость зависит от tunnel bandwidth
+   → RTO: 10–60 минут (зависит от объёма данных)
 
-4. Дубай запускается как replica, догоняет по WAL
+4. Локальный сервер запускается как replica, догоняет по WAL
 5. Failback — ТОЛЬКО вручную: lag=0, health green ≥ 10 мин
 ```
 
@@ -794,34 +782,36 @@ User Knowledge:
 | 1 год | ~6,000 | ~27 MB | ~200 KB | ~27 MB |
 | 5 лет | ~30,000 | ~135 MB | ~1 MB | ~136 MB |
 
-### Рост HNSW индекса (halfvec, 10K users)
+### Рост HNSW индекса (halfvec, на один шард ~500–800 users)
 
-| Период | Embeddings | HNSW индекс | Heap + прочие индексы | Working set |
-|--------|-----------|-------------|----------------------|-------------|
-| Месяц 6 | 7.5M | ~22 GB | ~40 GB | ~62 GB |
-| Год 1 | 15M | ~45 GB | ~70 GB | ~115 GB |
-| Год 2 | 30M | ~90 GB | ~140 GB | ~230 GB |
-| Год 3 | 45M | ~135 GB | ~250 GB | ~385 GB |
+| Период | Embeddings/шард | HNSW индекс | Heap + прочие | Working set |
+|--------|----------------|-------------|---------------|-------------|
+| Месяц 6 | ~750K | ~2.2 GB | ~4 GB | ~6 GB |
+| Год 1 | ~1.5M | ~4.5 GB | ~7 GB | ~11.5 GB |
+| Год 2 | ~3M | ~9 GB | ~14 GB | ~23 GB |
+| Год 3 | ~4.5M | ~13.5 GB | ~25 GB | ~38.5 GB |
 
-**Один сервер 256 GB** вмещает 10K users комфортно **~8–10 месяцев.** После этого — шардирование.
+**Один шард 32 GB** вмещает ~500–800 юзеров комфортно **~1–1.5 года.** Триггер: `pg_relation_size('idx_messages_embedding') > 20 GB` → добавить новый шард.
 
-### Производительность RAM disk vs alternatives
+### Производительность NVMe SSD (32 GB RAM)
 
-| Метрика | Cloud VM (OCI 128GB) | Bare Metal NVMe | Bare Metal + RAM disk |
-|---------|---------------------|-----------------|----------------------|
-| HNSW traversal (150 reads) | 2–5 ms (cached) / 50–100 ms (miss) | 1.5 ms | **~10 μs** |
-| Heap fetch (20 reads) | 0.5–2 ms | 0.2 ms | **~1.4 μs** |
-| Full hybrid search | 3–10 ms | 2–5 ms | **<100 μs** |
-| 1,000 concurrent queries p95 | 30–80 ms | 10–25 ms | **<1 ms** |
+| Метрика | 32 GB NVMe (local) | Комментарий |
+|---------|-------------------|-------------|
+| HNSW traversal (150 reads) | 1.5–3 ms (hot cache) / 5–10 ms (cold) | Working set в page cache при 500–800 юзерах |
+| Heap fetch (20 reads) | 0.2–0.5 ms | — |
+| Full hybrid search | 2–5 ms (hot) / 10–20 ms (cold) | — |
+| 1,000 concurrent queries p95 | 10–30 ms | — |
+
+> **Компенсация:** При 500–800 юзерах/шард весь working set помещается в effective_cache_size (24 GB) + shared_buffers (8 GB). Кеш тёплый при стабильной нагрузке. Деградация заметна только при cold start или spike.
 
 ### Пользователи БД
 
 | User | Доступ | Сервер |
 |------|--------|--------|
-| app_rw | READ/WRITE all | App Server, LLM Orchestrator |
-| knowledge_rw | READ/WRITE user_knowledge, user_keys | Knowledge Pipeline (локальный) |
-| persona_rw | READ/WRITE relationship_stage, persona_temp_blocks, signal_daily_deltas; READ user_knowledge | Persona Agent (10.1.0.21) |
-| replicator | REPLICATION | Hetzner AX102 replica |
+| app_rw | READ/WRITE all | local-app (10.2.0.2), local-orchestrator (10.2.0.17) |
+| knowledge_rw | READ/WRITE user_knowledge, user_keys | Knowledge Pipeline (на local-orchestrator) |
+| persona_rw | READ/WRITE relationship_stage, persona_temp_blocks, signal_daily_deltas; READ user_knowledge | local-persona (10.2.0.21) |
+| replicator | REPLICATION | shard-replica-0 (10.1.1.10, через WireGuard) |
 
 > **Связанный документ:** [UNDE_Knowledge_Staging_Pipeline.md](../UNDE_Knowledge_Staging_Pipeline.md) — детальная спецификация pipeline извлечения знаний, Epistemic Contract, supersede-механизм, cascade forget, memory correction loop, enrichment TTL guarantee. Все изменения схемы БД в этом файле согласованы с KSP v1.7.
 

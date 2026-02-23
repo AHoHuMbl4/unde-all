@@ -1,6 +1,6 @@
 # UNDE Infrastructure — Операции: расписание, мониторинг, деплой, безопасность
 
-*Часть [TZ Infrastructure v6.2](../TZ_Infrastructure_Final.md). Всё что нужно для эксплуатации.*
+*Часть [TZ Infrastructure v7.2](../TZ_Infrastructure_Final.md). Всё что нужно для эксплуатации.*
 
 ---
 
@@ -24,9 +24,9 @@
 | **ximilar_retry** | Ximilar Sync (10.1.0.14) | Ежедневно | 12:00 | Повтор неудачных |
 | **cleanup_old_data** | Staging DB | Ежедневно | 04:00 | DELETE > 30 дней |
 | **cleanup_temp_files** | Photo Downloader, Collage | Ежедневно | 05:00 | rm /app/data/* |
-| **enrichment_ttl_recovery** | LLM Orchestrator (10.1.0.17) | Каждые 6 часов | :00 | Сообщения без embedding старше 1ч → force enrich (retry < 3, LIMIT 500). KSP Фикс 14 |
-| **life_event_expiry** | Dubai Shard (cron) | Ежедневно | 03:00 | user_knowledge: life_event с expires_at < NOW() → is_active=FALSE. KSP Фикс 3 |
-| **extraction_review_sample** | LLM Orchestrator (10.1.0.17) | Ежедневно | 06:00 | [Фаза 2] 1% random sample batch extractions → review. KSP Фикс 1B |
+| **enrichment_ttl_recovery** | local-orchestrator (10.2.0.17) | Каждые 6 часов | :00 | Сообщения без embedding старше 1ч → force enrich (retry < 3, LIMIT 500). KSP Фикс 14 |
+| **life_event_expiry** | Local Shard (cron) | Ежедневно | 03:00 | user_knowledge: life_event с expires_at < NOW() → is_active=FALSE. KSP Фикс 3 |
+| **extraction_review_sample** | local-orchestrator (10.2.0.17) | Ежедневно | 06:00 | [Фаза 2] 1% random sample batch extractions → review. KSP Фикс 1B |
 
 **Recognition Orchestrator** — без расписания, обрабатывает запросы в реальном времени через Celery queue.
 
@@ -44,7 +44,7 @@
 
 **Persona Agent** — без расписания, обрабатывает HTTP-запросы в реальном времени (< 15ms p95). POST /persona (directive), POST /persona/feedback (signals), POST /persona/flush (resolve). In-process LRU cache (100 профилей). Cron: cleanup persona_temp_blocks + signal_daily_deltas (ежедневно 04:00).
 
-**Dubai Shard (Chat History + User Knowledge)** — без расписания, принимает INSERT при каждом сообщении, Hybrid Search для ContextPack, async enrichment (embedding, snippet). Streaming replication → Hetzner непрерывно.
+**Local Shard (Chat History + User Knowledge)** — без расписания, принимает INSERT при каждом сообщении, Hybrid Search для ContextPack, async enrichment (embedding, snippet). Streaming replication → Hetzner непрерывно.
 
 ### Бэкапы
 
@@ -52,10 +52,10 @@
 |-----------|-------|---------|-----------|-----------|
 | Production DB (Hetzner) | pgBackRest | Full: Вс 02:00, Diff: Пн-Сб 03:00 | Storage Box BX11 (1TB) | 4 full + 7 diff |
 | Staging DB (Hetzner) | pgBackRest | Full: Вс 03:00, Diff: Пн-Сб 04:00 | Storage Box | 4 full + 7 diff |
-| Dubai Shard → Hetzner | Streaming replication | Непрерывно (async WAL) | AX102 replica | Real-time |
-| Dubai Shard → Object Storage | pg_basebackup | Каждые 6 часов | Hetzner Object Storage | 7 daily + 4 weekly + 3 monthly |
-| Dubai Shard → WAL archive | archive_command | Непрерывно | Object Storage + NVMe | Point-in-Time Recovery |
-| Dubai Shard → локальный snapshot | pg_basebackup --compress=lz4 | Каждые 2 часа | NVMe отдельный раздел | 1 копия |
+| Local Shard → Hetzner | Streaming replication | Непрерывно (async WAL) | AX102 replica | Real-time |
+| Local Shard → Object Storage | pg_basebackup | Каждые 6 часов | Hetzner Object Storage | 7 daily + 4 weekly + 3 monthly |
+| Local Shard → WAL archive | archive_command | Непрерывно | Object Storage + NVMe | Point-in-Time Recovery |
+| Local Shard → локальный snapshot | pg_basebackup --compress=lz4 | Каждые 2 часа | NVMe отдельный раздел | 1 копия |
 
 ---
 
@@ -64,12 +64,12 @@
 ### Prometheus targets
 
 ```yaml
-# /etc/prometheus/prometheus.yml на App Server
+# /etc/prometheus/prometheus.yml на Monitoring Server (10.1.0.31)
 
 scrape_configs:
   # Существующие...
   
-  # Новые:
+  # Helsinki batch серверы:
   - job_name: 'node-apify'
     static_configs:
       - targets: ['10.1.0.7:9100']
@@ -98,37 +98,13 @@ scrape_configs:
     static_configs:
       - targets: ['10.1.0.16:9100']
 
-  - job_name: 'node-llm-orchestrator'
-    static_configs:
-      - targets: ['10.1.0.17:9100']
-
   - job_name: 'node-staging-db'
     static_configs:
       - targets: ['10.1.1.3:9100']
 
-  - job_name: 'node-mood-agent'
-    static_configs:
-      - targets: ['10.1.0.11:9100']
+  # Локальные серверы — мониторятся через VPN, см. 07_Server_Layout_v7.md
 
-  - job_name: 'node-voice'
-    static_configs:
-      - targets: ['10.1.0.12:9100']
-
-  - job_name: 'node-context-agent'
-    static_configs:
-      - targets: ['10.1.0.19:9100']
-
-  - job_name: 'node-persona-agent'
-    static_configs:
-      - targets: ['10.1.0.21:9100']
-
-  - job_name: 'node-dubai-shard-0'
-    static_configs:
-      - targets: ['dubai-shard-0:9100']
-
-  - job_name: 'postgres-dubai-shard-0'
-    static_configs:
-      - targets: ['dubai-shard-0:9187']
+  # node-dubai-shard-0, postgres-dubai-shard-0 — теперь локальные, см. 07_Server_Layout_v7.md
 
   - job_name: 'node-shard-replica-0'
     static_configs:
@@ -140,7 +116,8 @@ scrape_configs:
 
   - job_name: 'etcd-cluster'
     static_configs:
-      - targets: ['dubai-shard-0:2379', '10.1.1.10:2379', '10.1.1.20:2379']
+      - targets: ['10.1.1.10:2379', '10.1.1.20:2379']
+      # dubai-shard-0:2379 — теперь локальный, см. 07_Server_Layout_v7.md
 
   - job_name: 'postgres-staging'
     static_configs:
@@ -193,21 +170,21 @@ scrape_configs:
 | persona_feedback_signals_total | Persona Agent | — (info metric) |
 | persona_signal_discard_rate | Persona Agent | > 50% (слишком много конфликтов) |
 | persona_stage_upgrades_total | Persona Agent | — (info metric) |
-| persona_temp_blocks_active | Dubai Shard | > 100 per user |
-| **Dubai Shard (tmpfs + replication)** | | |
-| tmpfs_usage_percent | Dubai Shard | > 85% — время добавлять шард |
-| hnsw_index_size_bytes | Dubai Shard | > 80 GB — планировать новый шард |
-| replication_lag_seconds | Dubai Shard → Hetzner | > 5 секунд |
+| persona_temp_blocks_active | Local Shard | > 100 per user |
+| **Local Shard (disk + replication)** | | |
+| disk_usage_percent | Local Shard | > 85% — время добавлять шард |
+| hnsw_index_size_bytes | Local Shard | > 20 GB — планировать новый шард |
+| replication_lag_seconds | Local Shard → Hetzner | > 5 секунд |
 | replica_up | Hetzner Replica | == 0 — failover скомпрометирован |
 | replay_requests_total_rate | App Server | > 10/5m — недавний failover |
 | enrichment_backfill_rate | LLM Orchestrator | > 5/5m — replayed без embedding |
-| replication_slot_wal_bytes | Dubai Shard | > 20 GB — replica отстала, NVMe в опасности |
+| replication_slot_wal_bytes | Local Shard | > 20 GB — replica отстала, NVMe в опасности |
 | etcd_server_has_leader | etcd cluster | == 0 — risk split-brain |
-| hybrid_search_latency_ms | Dubai Shard | p95 > 50ms |
+| hybrid_search_latency_ms | Local Shard | p95 > 50ms |
 | embedding_ingestion_errors | LLM Orchestrator | > 5% |
-| memory_snippet_null_rate | Dubai Shard | > 10% embeddable |
-| user_knowledge_decrypt_errors | Dubai Shard | > 1% |
-| user_knowledge_decrypt_latency_ms | Dubai Shard | p95 > 1ms |
+| memory_snippet_null_rate | Local Shard | > 10% embeddable |
+| user_knowledge_decrypt_errors | Local Shard | > 1% |
+| user_knowledge_decrypt_latency_ms | Local Shard | p95 > 1ms |
 | **Knowledge Staging Pipeline (KSP)** | | |
 | unde_instant_extraction_total{type,language} | LLM Orchestrator | — (info) |
 | unde_instant_extraction_supersede_total | LLM Orchestrator | — (info) |
@@ -215,16 +192,16 @@ scrape_configs:
 | unde_batch_extraction_deltas_total{operation} | LLM Orchestrator | — (info, Фаза 2) |
 | unde_batch_extraction_queue_size | LLM Orchestrator | > 1000 → scale workers |
 | unde_batch_extraction_errors_total | LLM Orchestrator | > 5% |
-| unde_snippet_cache_hit_ratio | Dubai Shard | — (info, Фаза 2) |
+| unde_snippet_cache_hit_ratio | Local Shard | — (info, Фаза 2) |
 | unde_enrichment_queue_size{priority} | LLM Orchestrator | > 500 |
 | unde_enrichment_latency_seconds{priority} | LLM Orchestrator | p95 > 5s |
-| unde_orphan_messages_total | Dubai Shard | > 100 → enrichment pipeline проблема |
+| unde_orphan_messages_total | Local Shard | > 100 → enrichment pipeline проблема |
 | unde_memory_correction_total{type,lang} | LLM Orchestrator | > 3%/week → batch prompt tuning |
 | unde_memory_correction_uk_deactivated_total | LLM Orchestrator | > 1% → ложные факты; > 3% → auto-fallback |
 | unde_memory_correction_uk_disputed_total | LLM Orchestrator | — (info) |
 | unde_privacy_span_filtered_total | LLM Orchestrator | — (info, Фаза 2) |
-| unde_forget_cascade_snippets_nullified_total | Dubai Shard | — (info) |
-| unde_forget_cascade_knowledge_deactivated_total | Dubai Shard | > 5/day → alert |
+| unde_forget_cascade_snippets_nullified_total | Local Shard | — (info) |
+| unde_forget_cascade_knowledge_deactivated_total | Local Shard | > 5/day → alert |
 | unde_user_repeated_info_count | LLM Orchestrator | > 5%/week → retrieval проблема |
 | unde_retrieval_miss_rate | LLM Orchestrator | > 10% → рассмотреть Фикс 1B |
 | unde_staging_fallback_triggered_total | LLM Orchestrator | > 100/hour → batch bottleneck |
@@ -232,8 +209,8 @@ scrape_configs:
 | unde_validator_gate_total{result} | LLM Orchestrator | — (info, Фаза 2) |
 | unde_validator_rejection_rate | LLM Orchestrator | > 50% → prompt слишком широкий |
 | pgbackrest_last_full_age_hours | Production DB, Staging DB | > 192 (8 days) |
-| basebackup_last_age_hours | Dubai Shard → Object Storage | > 12 (missed 2 cycles) |
-| local_snapshot_age_hours | Dubai Shard → NVMe | > 4 (missed 2 cycles) |
+| basebackup_last_age_hours | Local Shard → Object Storage | > 12 (missed 2 cycles) |
+| local_snapshot_age_hours | Local Shard → NVMe | > 4 (missed 2 cycles) |
 | user_media_bucket_size | Hetzner | > 200 GB |
 | object_storage_size | Hetzner | > 200 GB |
 
@@ -483,9 +460,9 @@ print(result)
 apt update && apt install -y docker.io docker-compose
 git clone http://gitlab-real.unde.life/unde/persona-agent.git /opt/unde/persona-agent
 cd /opt/unde/persona-agent
-cp .env.example .env  # Заполнить: Dubai Shard DB, Redis, CONTRACT_VERSION
+cp .env.example .env  # Заполнить: Local Shard DB, Redis, CONTRACT_VERSION
 
-# Создать таблицы в Dubai Shard
+# Создать таблицы в Local Shard
 psql -h dubai-shard-0 -p 6432 -U app_rw -d unde_shard < deploy/init-persona-tables.sql
 
 docker-compose up -d
@@ -647,12 +624,12 @@ EOF
 │  etcd-3 (10.1.1.20)      — только private network        │
 │                                                            │
 │  DUBAI (bare metal, private + VPN к Hetzner):              │
-│  Dubai Shard Primary     — private network + VPN           │
+│  Local Shard Primary     — private network + VPN           │
 │  etcd-1                  — на Dubai app-сервере            │
 └───────────────────────────────────────────────────────────┘
 ```
 
-**Dubai Shard Primary** — bare metal сервер в Dubai DC. Доступен только по private network (VPN tunnel к Hetzner). Нет публичного IP для PostgreSQL. SSH через VPN или dedicated management network.
+**Local Shard Primary** — bare metal сервер в Dubai DC. Доступен только по private network (VPN tunnel к Hetzner). Нет публичного IP для PostgreSQL. SSH через VPN или dedicated management network.
 
 **Модель безопасности User Data (3 уровня):**
 
@@ -705,11 +682,11 @@ Tombstone Registry:
 | Persona Agent Redis password | .env | Persona Agent (idempotency, buffer, locks) |
 | Persona Agent Shard DB password | .env | Persona Agent (relationship_stage, blocks, deltas) |
 | S3 Access Key (user-media) | .env | App Server |
-| Dubai Shard DB password | .env | App Server, LLM Orchestrator |
-| Master Encryption Key (AES-256, User Knowledge) | .env (RAM only) | Dubai Shard, LLM Orchestrator |
-| Replication password | .env | Dubai Shard ↔ Hetzner Replica |
+| Local Shard DB password | .env | App Server, LLM Orchestrator |
+| Master Encryption Key (AES-256, User Knowledge) | .env (RAM only) | Local Shard, LLM Orchestrator |
+| Replication password | .env | Local Shard ↔ Hetzner Replica |
 | Storage Box credentials (db01) | /root/.storagebox-creds | Production DB |
-| LUKS passphrase (Dubai NVMe) | Offline (не на сервере) | Dubai Shard |
+| LUKS passphrase (Dubai NVMe) | Offline (не на сервере) | Local Shard |
 | etcd TLS certificates | /etc/etcd/ssl/ | etcd-1, etcd-2, etcd-3 |
 | Patroni REST API password | .env | Patroni (Dubai + Hetzner) |
 
@@ -721,7 +698,7 @@ Tombstone Registry:
 *— Persona Agent вызывается из LLM Orchestrator (Фаза 2, параллельно с embedding, ~15ms)*
 *— 4 выхода: persona_directive → LLM, voice_params → Voice Server, avatar_state → Rive, render_hints → App*
 *— voice_params теперь от Persona Agent (а не от Mood Agent напрямую). Зависимость: Mood → Persona (сенсор → актуатор)*
-*— Новые таблицы на Dubai Shard: relationship_stage, persona_temp_blocks, signal_daily_deltas*
+*— Новые таблицы на Local Shard: relationship_stage, persona_temp_blocks, signal_daily_deltas*
 *— Async feedback loop: behavioral signals → SignalBuffer per exchange_id → conflict graph → conservative wins*
 *— persona_contract: версионируемый Python-пакет (major version check), 66 golden tests (GT + CT)*
 *— Обновлены: LLM Orchestrator (pipeline, env, clients), Voice Server, Data Flow, мониторинг, деплой, безопасность*

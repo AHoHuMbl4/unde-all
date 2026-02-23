@@ -1,18 +1,20 @@
-# UNDE Infrastructure — Итоговое ТЗ v6.1
+# UNDE Infrastructure — Итоговое ТЗ v7.2
 
 ## Принципы архитектуры
 
 - **1 сервер = 1 задача** — изоляция для отладки и масштабирования
 - **Staging → Production** — сырые данные не попадают в prod напрямую
 - **Фото у нас** — не зависим от CDN брендов, Zara нас не видит
-- **Dubai primary, Hetzner replicas** — primary DB в Дубае (bare metal, tmpfs), Hetzner Helsinki — hot standby replicas + бэкапы
-- **RAM — единственный bottleneck** — CPU, диск, сеть — всё с запасом 50–100×. Масштабирование = добавление RAM через новые шарды
-- **Данные на tmpfs, WAL на NVMe** — максимальная скорость чтения (наносекунды), durability через WAL и streaming replication
+- **Локальные серверы для hot path** — всё, что на critical path диалога (юзер ждёт ответа), живёт локально рядом с юзерами. Helsinki — batch/core
+- **Ограничение локальных серверов:** макс. 16 vCPU / 32 GB RAM на сервер
+- **NVMe SSD + OS page cache** — данные на NVMe, hot working set в page cache (effective_cache_size 24 GB). Компенсация через раннее шардирование (500–800 юзеров/шард)
 - **Chat History + User Knowledge = один шард** — все данные юзера на одном сервере, один запрос для ContextPack
 - **Три слоя знания + Epistemic Contract** — User Knowledge (факты, кеш с evidence pointers) + Semantic Retrieval (эпизоды из чата, pgvector, raw_excerpt head+tail) + Context Agent (мир вокруг юзера). [Epistemic Contract](../UNDE_Knowledge_Staging_Pipeline.md): RAW — единственный источник правды; User Knowledge — кеш, не профиль; любой производный текст сопровождается raw excerpt + message_ids. [Knowledge Staging Pipeline](../UNDE_Knowledge_Staging_Pipeline.md) — детальная спецификация pipeline извлечения знаний
 - **Application-level sharding** — простой hash(user_id) % N в Redis. Никакой магии distributed SQL
+- **Шардирование с первого дня** — 32 GB RAM/шард → раннее горизонтальное масштабирование
 - **Client-side verify-and-replay** — нулевая потеря данных при failover. Приложение хранит буфер последних пар и переотправляет при reconnect
-- **Failover auto, failback manual** — Patroni переключает на Hetzner автоматически. Возврат на Dubai — только вручную
+- **Failover auto, failback manual** — Patroni переключает на Hetzner автоматически. Возврат на локальные серверы — только вручную
+- **Голос на API (ElevenLabs)** — переход на свой TTS при появлении отдельного разработчика
 - **Три агента — сенсоры и актуатор** — Mood Agent (как юзер себя чувствует) + Context Agent (что вокруг) = сенсоры → Persona Agent (как аватар ведёт себя) = актуатор. persona_directive → LLM, voice_params → ElevenLabs, avatar_state → Rive, render_hints → App
 
 ---
@@ -102,55 +104,27 @@
                      │                     │• search    │ │  rerank    │
                      │                     └────────────┘ └────────────┘
                      │
-                     │  ┌───────────────────────────────────┐
-                     │  │ LLM ORCHESTRATOR (10.1.0.17)      │
-                     │  │ Hetzner Helsinki                  │
-                     │  │ • ContextPack (3 слоя знания)     │
-                     │  │   → User Knowledge + Semantic     │
-                     │  │     Retrieval + Context Agent      │
-                     │  │ • Embedding client (Cohere)       │
-                     │  │ • → DeepSeek/Gemini/Claude/Qwen   │
-                     │  │ • → Voice Server (текст→TTS)      │
-                     │  └───────────────────────────────────┘
                      │
-                     │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐
-                     │  │ MOOD AGENT    │  │ PERSONA AGENT │  │ VOICE SERVER  │
-                     │  │ (10.1.0.11)   │  │ (10.1.0.21)   │  │ (10.1.0.12)   │
-                     │  │ • Эмоц. анализ│  │ • Характер    │  │ • ElevenLabs  │
-                     │  │ • mood_frame  │→ │ • persona_dir │→ │ • TTS stream  │
-                     │  └───────────────┘  │ • voice_params│  └───────────────┘
-                     │                     │ • avatar_state│
-                     │                     │ • render_hints│
-                     │                     └───────────────┘
-                     │
-                     │  ┌───────────────────────────────────┐
-                     │  │ CONTEXT AGENT (10.1.0.19)         │
-                     │  │ Hetzner Helsinki                  │
-                     │  │ • Геолокация, погода, время       │
-                     │  │ • Культурный контекст (Рамадан)   │
-                     │  │ • Events + Opportunities          │
-                     │  │ • → context_frame JSON            │
-                     │  └───────────────────────────────────┘
-                     │
-                     │  ┌─────────────────────────────────────────────────┐
-                     │  │ USER DATA LAYER (шардированный)                 │
-                     │  │                                                 │
-                     │  │ DUBAI PRIMARY SHARD (bare metal, 256 GB RAM)    │
-                     │  │ ├── pgdata на tmpfs (RAM) — sub-μs reads       │
-                     │  │ ├── WAL на NVMe (synchronous_commit=local)     │
-                     │  │ ├── Chat History (pgvector, FTS, партиции)     │
-                     │  │ ├── User Knowledge (AES-256)                   │
-                     │  │ └── Patroni primary                            │
-                     │  │       │                                         │
-                     │  │       │ async WAL streaming (120ms)             │
-                     │  │       ▼                                         │
-                     │  │ HETZNER REPLICA (AX102, 128 GB RAM)            │
-                     │  │ ├── Hot standby (NVMe, fsync)                  │
-                     │  │ ├── Patroni + etcd → auto failover             │
-                     │  │ └── pg_basebackup → Object Storage             │
-                     │  │                                                 │
-                     │  │ Bucket: unde-user-media 🔒                     │
-                     │  └─────────────────────────────────────────────────┘
+              ┌──────┴───── WireGuard (каждый сервер — отдельный туннель) ─────┐
+              │              ~120ms RTT, через helsinki-gw (10.1.0.40)          │
+              │                                                                │
+              │  ┌── ЛОКАЛЬНЫЕ СЕРВЕРЫ (hot path, <5ms от юзеров) ──────────┐  │
+              │  │                                                          │  │
+              │  │  LLM ORCHESTRATOR (10.2.0.17)                            │  │
+              │  │  • ContextPack (3 слоя знания)                           │  │
+              │  │  • → DeepSeek/Gemini/Claude/Qwen + Voice Server          │  │
+              │  │                                                          │  │
+              │  │  MOOD (10.2.0.11) | PERSONA (10.2.0.21) | VOICE (10.2.0.12) │
+              │  │  CONTEXT (10.2.0.19) | REDIS (10.2.0.4)                 │  │
+              │  │                                                          │  │
+              │  │  USER DATA SHARDS (local-shard-0..N, 32 GB, NVMe)       │  │
+              │  │  ├── PostgreSQL 17 + pgvector, Chat History + UK         │  │
+              │  │  ├── Patroni primary → async WAL → Helsinki replica      │  │
+              │  │  └── 500–800 юзеров/шард                                │  │
+              │  │                                                          │  │
+              │  │  etcd-1 (10.2.0.50) — Patroni quorum                    │  │
+              │  └──────────────────────────────────────────────────────────┘  │
+              └────────────────────────────────────────────────────────────────┘
                      │
                      ▼
               ┌──────────────┐
@@ -167,80 +141,62 @@
 
 ## Карта серверов
 
-### Hetzner Helsinki (приложение, каталог, scraping, ML-pipeline)
+> **Детальная карта серверов, стоимость, WireGuard, failover — см. [07_Server_Layout_v7.md](07_Server_Layout_v7.md)**
 
-| Сервер | IP (private) | IP (public) | Задача | Тип | Статус |
-|--------|-------------|-------------|--------|-----|--------|
-| unde-app | 10.1.0.2 | 46.62.233.30 | API, Nginx, Prometheus | CX43 (160GB) | ✅ Существует |
-| scraper | 10.1.0.3 | 46.62.255.184 | Mobile API (наличие) + Sync | CPX22 (80GB) | ✅ Существует |
-| push | 10.1.0.4 | 77.42.30.44 | Redis, Celery broker | CPX32 (160GB) | ✅ Существует |
-| model-generator | 10.1.0.5 | 89.167.20.60 | AI-модели (аватары) | CPX22 (80GB) | ✅ Существует |
-| tryon-service | 10.1.0.6 | 89.167.31.65 | Virtual try-on | CPX22 (80GB) | ✅ Существует |
-| **apify** | **10.1.0.7** | — | **Сбор метаданных каталога (Apify.com)** | **CPX21 (80GB)** | 🆕 Создать |
-| **collage** | **10.1.0.8** | — | **Склейка фото** | **CPX31 (160GB)** | 🆕 Создать |
-| **recognition** | **10.1.0.9** | — | **Recognition Orchestrator (координация pipeline)** | **CPX11 (40GB)** | 🆕 Создать |
-| **mood-agent** | **10.1.0.11** | — | **Mood Agent (эмоциональный анализ)** | **CPX11 (40GB)** | 🆕 Создать |
-| **voice** | **10.1.0.12** | — | **Voice TTS (ElevenLabs proxy)** | **CPX21 (80GB)** | 🆕 Создать |
-| **photo-downloader** | **10.1.0.13** | — | **Скачивание фото брендов → Object Storage** | **CPX21 (80GB)** | 🆕 Создать |
-| **ximilar-sync** | **10.1.0.14** | — | **Синхронизация каталога → Ximilar Collection** | **CPX11 (40GB)** | 🆕 Создать |
-| **ximilar-gw** | **10.1.0.15** | — | **Ximilar Gateway (detect, tag, search)** | **CPX21 (80GB)** | 🆕 Создать |
-| **llm-reranker** | **10.1.0.16** | — | **LLM Reranker (Gemini tag + rerank)** | **CPX11 (40GB)** | 🆕 Создать |
-| **llm-orchestrator** | **10.1.0.17** | — | **Диалоговый LLM Orchestrator (генерация ответов аватара)** | **CPX21 (80GB)** | 🆕 Создать |
-| **context-agent** | **10.1.0.19** | — | **Context Agent (геолокация, погода, культура, события)** | **CPX11 (40GB)** | 🆕 Создать |
-| **persona-agent** | **10.1.0.21** | — | **Persona Agent (характер, тон, стиль, голос, аватар, relationship stage)** | **CPX11 (40GB)** | 🆕 Создать |
-| Production DB | 10.1.1.2 | — | PostgreSQL prod + routing_table + tombstone_registry | AX41 (dedicated) | ✅ Существует |
-| **staging-db** | **10.1.1.3** | — | **PostgreSQL staging** | **CPX21 (80GB)** | 🆕 Создать |
-| GitLab | — | gitlab-real.unde.life | Git репозиторий | — | ✅ Существует |
+### ЛОКАЛЬНЫЕ серверы (hot path — dialogue critical path)
 
-### Hetzner Helsinki (replicas + etcd + analytics)
+> Ограничение: макс. 16 vCPU / 32 GB RAM на сервер. Провайдер определяется по локации юзеров.
 
-| Сервер | IP | Задача | Тип | Статус |
-|--------|----|--------|-----|--------|
-| **shard-replica-0** | **10.1.1.10** | **Hot standby replica шарда 0 (Patroni + streaming replication)** | **AX102 (128 GB RAM, 2×2TB NVMe)** | 🆕 Создать |
-| **etcd-3** | **10.1.1.20** | **etcd quorum node (3-й узел для Patroni)** | **CPX11 (~€4/мес)** | 🆕 Создать |
-| **analytics-replica** | — | **Аналитика, B2B отчёты, ML, поведенческий анализ (Фаза 2+)** | **AX162-R (256GB DDR5, $245/мес)** | 📋 Планируется |
+| # | Сервер | Конфиг | Задача | Статус |
+|---|--------|--------|--------|--------|
+| L1 | **local-app** | 4 vCPU / 8 GB | API gateway (Nginx + FastAPI). Единственная точка входа для юзеров | 🆕 Создать |
+| L2 | **local-orchestrator** | 8 vCPU / 16 GB | LLM Orchestrator: ContextPack, embedding, генерация | 🆕 Создать |
+| L3 | **local-redis** | 2 vCPU / 4 GB | Redis: hot cache, rate limit, debounce, shard routing | 🆕 Создать |
+| L4 | **local-mood** | 2 vCPU / 4 GB | Mood Agent: signal + context mood | 🆕 Создать |
+| L5 | **local-persona** | 2 vCPU / 4 GB | Persona Agent: relationship, tone, voice, avatar | 🆕 Создать |
+| L6 | **local-context** | 2 vCPU / 4 GB | Context Agent: гео, погода, события, культура | 🆕 Создать |
+| L7 | **local-voice** | 2 vCPU / 4 GB | Voice Server: ElevenLabs proxy, WebSocket streaming | 🆕 Создать |
+| L8 | **local-shard-0** | **16 vCPU / 32 GB** | User Data Shard 0: PostgreSQL 17 + pgvector | 🆕 Создать |
+| L9 | **local-etcd-1** | 1 vCPU / 2 GB | etcd node для Patroni (локальный голос primary) | 🆕 Создать |
 
-### Dubai (primary user data + dialogue hot path — bare metal / colocation)
+### Hetzner Helsinki — существующие серверы
 
-**Принцип:** Всё, что на critical path диалога (юзер ждёт ответа), живёт в Дубае.
-RTT Dubai ↔ Hetzner = 120ms. Каждый hop = +120ms к latency. Orchestrator делает 4-5 hops к шарду за запрос = **+480-600ms чисто на сеть**. Перенос hot path серверов в Дубай убирает это до <5ms.
+| # | Сервер | IP (private) | IP (public) | Тип | Статус |
+|---|--------|-------------|-------------|-----|--------|
+| H1 | unde-app | 10.1.0.2 | 46.62.233.30 | CX43 | ✅ Работает |
+| H2 | scraper | 10.1.0.3 | 46.62.255.184 | CPX22 | ✅ Работает |
+| H3 | push | 10.1.0.4 | 77.42.30.44 | CPX32 | ✅ Работает |
+| H4 | model-generator | 10.1.0.5 | 89.167.20.60 | CPX22 | ✅ Работает |
+| H5 | tryon-service | 10.1.0.6 | 89.167.31.65 | CPX22 | ✅ Работает |
+| H6 | Production DB | 10.1.1.2 | — | AX41 (dedicated) | ✅ Работает |
+| — | GitLab | — | gitlab-real.unde.life | — | ✅ Работает |
 
-| Сервер | Задача | Тип | Статус |
-|--------|--------|-----|--------|
-| **dubai-shard-0** | Primary DB: Chat History + User Knowledge. Tmpfs 140 GB, WAL на NVMe | Bare metal dedicated (256 GB RAM, 2× EPYC, 2× 2TB NVMe) | 🆕 Арендовать |
-| **dubai-app** | App Server (API entry point). Юзеры в Дубае → <1ms вместо 120ms | Bare metal или VPS (8 vCPU, 16 GB) | 🆕 Фаза 2 |
-| **dubai-orchestrator** | LLM Orchestrator (dialogue brain). Ходит в shard 4-5 раз/запрос | Bare metal или VPS (4 vCPU, 8 GB) × N pods | 🆕 Фаза 2 |
-| **dubai-redis** | Redis (очереди, rate limit, mood/context cache, debounce) | VPS (4 GB RAM) или контейнер на app | 🆕 Фаза 2 |
-| **dubai-mood** | Mood Agent (эмоц. анализ). Параллельный path, Orch ждёт 300ms | VPS (2 vCPU, 2 GB) или контейнер | 🆕 Фаза 2 |
-| **dubai-persona** | Persona Agent (характер, тон). Читает stage из shard | VPS (2 vCPU, 4 GB) или контейнер | 🆕 Фаза 2 |
-| **dubai-context** | Context Agent (геолок, погода, культура) | VPS (2 vCPU, 4 GB) или контейнер | 🆕 Фаза 2 |
-| **dubai-voice** | Voice Server (TTS proxy → ElevenLabs). Streaming audio юзеру | VPS (3 vCPU, 4 GB) | 🆕 Фаза 2 |
-| **etcd-1** | etcd node для Patroni | Lightweight контейнер | 🆕 Создать |
+**Изменение ролей существующих серверов:**
 
-**Выигрыш по latency:**
-```
-Сейчас (hot path через Hetzner):    ~480-600ms сетевой overhead
-После (hot path в Dubai):            ~5ms сетевой overhead
-Выигрыш:                             ~500ms на КАЖДЫЙ запрос
-```
+| Сервер | Старая роль | Новая роль |
+|--------|-------------|-----------|
+| **unde-app (H1)** | API gateway (единственная точка входа) | **Helsinki API** — batch endpoints, webhooks, admin. Юзерский трафик → local-app |
+| **push (H3)** | Redis + Celery broker | **Batch Redis + Celery broker** — для recognition queue, catalog pipeline, enrichment TTL recovery. Hot path Redis → local-redis |
 
-**Реализация для Dubai:**
-- **Фаза 1 (MVP):** Только dubai-shard-0 + etcd-1 в Дубае. Остальное в Hetzner (работает, но +500ms).
-- **Фаза 2 (10K+):** Перенос hot path (app + orchestrator + agents + redis + voice) в Дубай. Один bare metal сервер (64 GB RAM) вмещает все эти контейнеры — они лёгкие (суммарно ~30 GB RAM, 20 vCPU).
-- **Фаза 3 (50K+):** Kubernetes cluster в Дубае (2-3 bare metal node), отдельные pods для Orchestrator (auto-scale).
+### Hetzner Helsinki — новые серверы
 
-**Что ОСТАЁТСЯ в Hetzner Helsinki:**
-- Production DB (каталог) — batch sync, не на critical path
-- Shard Replicas — hot standby для failover
-- Recognition pipeline (Ximilar GW, LLM Reranker) — async, 5-15s
-- Batch pipeline (Scraper, Photo Downloader, Collage, Ximilar Sync)
-- Model Generator, TryOn Service — async
-- Object Storage (images)
-- etcd-2, etcd-3 (Patroni quorum)
-
-> **Примечание:** Все серверы на critical path (App, Orchestrator, Agents, Redis, Voice) помещаются на **одном** bare metal сервере (64 GB RAM, 16 cores) в Дубае как Docker Compose с контейнерами. Стоимость: ~$300-400/мес. Экономически оправдано: 500ms экономии × тысячи запросов/день = ощутимо лучший UX.
-
----
+| # | Сервер | IP (private) | Тип | €/мес | Задача | Статус |
+|---|--------|-------------|-----|-------|--------|--------|
+| H7 | **apify** | 10.1.0.7 | CPX21 | €12 | Сбор метаданных каталога (Apify.com) | 🆕 Создать |
+| H8 | **collage** | 10.1.0.8 | CPX31 | €25 | Склейка фото | 🆕 Создать |
+| H9 | **recognition** | 10.1.0.9 | CPX11 | €6 | Recognition Orchestrator | 🆕 Создать |
+| H10 | **photo-downloader** | 10.1.0.13 | CPX21 | €12 | Скачивание фото брендов → Object Storage | 🆕 Создать |
+| H11 | **ximilar-sync** | 10.1.0.14 | CPX11 | €6 | Синхронизация каталога → Ximilar Collection | 🆕 Создать |
+| H12 | **ximilar-gw** | 10.1.0.15 | CPX21 | €12 | Ximilar Gateway (/detect, /tag, /search) | 🆕 Создать |
+| H13 | **llm-reranker** | 10.1.0.16 | CPX11 | €6 | LLM Reranker (Gemini visual comparison) | 🆕 Создать |
+| H14 | **staging-db** | 10.1.1.3 | CPX21 | €12 | PostgreSQL staging | 🆕 Создать |
+| H15 | **shard-replica-0** | 10.1.1.10 | CCX23 (4 vCPU / 16 GB) | €39 | Hot standby replica шарда 0 (Patroni) | 🆕 Создать |
+| H16 | **etcd-2** | на shard-replica-0 | контейнер | €0 | etcd quorum node 2 | 🆕 Создать |
+| H17 | **etcd-3** | 10.1.1.20 | CPX11 | €4 | etcd quorum node 3 (tiebreaker) | 🆕 Создать |
+| H18 | **posthog** | 10.1.0.30 | CCX33 (8 vCPU / 32 GB) | €74 | PostHog self-hosted: product analytics | 🆕 Создать |
+| H19 | **monitoring** | 10.1.0.31 | CPX32 (4 vCPU / 8 GB) | €25 | Prometheus + Grafana + Alertmanager | 🆕 Создать |
+| H20 | **helsinki-gw** | 10.1.0.40 | CPX22 (2 vCPU / 4 GB) | €12 | Firewall/Router: Debian 12 + MikroTik CHR. WireGuard endpoint | 🆕 Создать |
+| — | **Object Storage** | — | S3-compatible | ~€10 | unde-images, unde-user-media, backups | 🆕 Создать |
 
 ---
 
@@ -252,7 +208,8 @@ RTT Dubai ↔ Hetzner = 120ms. Каждый hop = +120ms к latency. Orchestrato
 | [01_Catalog_Pipeline.md](01_Catalog_Pipeline.md) | Scraper, Apify, Photo Downloader, Ximilar Sync, Collage, Staging DB, Object Storage |
 | [02_Recognition_Pipeline.md](02_Recognition_Pipeline.md) | Recognition Orchestrator, Ximilar Gateway, LLM Reranker |
 | [03_Dialogue_Pipeline.md](03_Dialogue_Pipeline.md) | Mood Agent, Voice Server, LLM Orchestrator, Context Agent, Persona Agent |
-| [04_Dubai_User_Data_Shard.md](04_Dubai_User_Data_Shard.md) | Dubai Shard: схема БД, репликация, шардирование, бэкапы |
+| [04_Local_User_Data_Shards.md](04_Local_User_Data_Shards.md) | Local Shards: схема БД, репликация, шардирование, бэкапы |
 | [05_Data_Flow.md](05_Data_Flow.md) | Диаграммы потоков данных (7 сценариев) |
 | [06_Operations.md](06_Operations.md) | Расписание, мониторинг, деплой, безопасность |
+| [07_Server_Layout_v7.md](07_Server_Layout_v7.md) | Карта серверов v7.2, стоимость, WireGuard, failover, PostHog, мониторинг |
 | [UNDE_Knowledge_Staging_Pipeline.md](../UNDE_Knowledge_Staging_Pipeline.md) | Epistemic Contract, pipeline извлечения знаний, instant/batch extraction, supersede, correction loop, privacy guard, enrichment TTL |

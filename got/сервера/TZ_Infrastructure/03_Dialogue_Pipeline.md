@@ -1,6 +1,6 @@
 # UNDE Infrastructure — Диалоговый Pipeline
 
-*Часть [TZ Infrastructure v6.2](../TZ_Infrastructure_Final.md). Серверы диалога: эмоции, голос, LLM, контекст, персона.*
+*Часть [TZ Infrastructure v7.2](../TZ_Infrastructure_Final.md). Серверы диалога: эмоции, голос, LLM, контекст, персона.*
 
 ---
 
@@ -11,10 +11,10 @@
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | mood-agent |
-| **Private IP** | 10.1.0.11 |
-| **Тип** | Hetzner CPX11 |
+| **Private IP** | 10.2.0.11 |
+| **Тип** | Local (2 vCPU / 4 GB) |
 | **vCPU** | 2 |
-| **RAM** | 2 GB |
+| **RAM** | 4 GB |
 | **Disk** | 40 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
 
@@ -36,7 +36,7 @@
 **Зачем два уровня:**
 Одно сообщение «прекрасное платье, просто изумительное» → позитивное. Но в контексте 3 предыдущих негативных ответов + злая интонация → сарказм. Per-message без контекста ловит только поверхность. Sliding window ловит эмоциональную *траекторию*.
 
-### Почему CPX11
+### Почему Local (2 vCPU / 4 GB)
 
 Mood Agent — лёгкий классификатор (один LLM-вызов per message, sliding window из кеша). CPU и RAM минимальны. При росте нагрузки — масштабируется вертикально без смены архитектуры.
 
@@ -48,7 +48,7 @@ Mood Agent — лёгкий классификатор (один LLM-вызов 
     ▼
 ┌─────────────────┐
 │  App Server     │
-│  (10.1.0.2)     │
+│  (10.2.0.2)     │
 │  API endpoint   │
 └────────┬────────┘
          │
@@ -59,7 +59,7 @@ Mood Agent — лёгкий классификатор (один LLM-вызов 
     ▼                                       ▼
 ┌───────────────────┐            ┌─────────────────────────┐
 │  MOOD AGENT       │            │  LLM Orchestrator       │
-│  10.1.0.11        │            │  (главная модель)       │
+│  10.2.0.11        │            │  (главная модель)       │
 │                   │            │                         │
 │  Вход:            │            │  Ожидает ContextPack    │
 │  • текст/ASR      │            │  с параметрами от       │
@@ -74,7 +74,7 @@ Mood Agent — лёгкий классификатор (один LLM-вызов 
         │  mood_frame также идёт в:           ▼
         │                              ┌─────────────┐
         ├──────────────────────────────►│ VOICE SERVER│
-        │  tempo, warmth, tension      │ 10.1.0.12   │
+        │  tempo, warmth, tension      │ 10.2.0.12   │
         │  → ElevenLabs Expressive     │ ElevenLabs  │
         │                              └─────────────┘
         │
@@ -165,7 +165,7 @@ Mood Agent — лёгкий классификатор (один LLM-вызов 
 ### API Endpoint (обновлённый)
 
 ```
-POST http://10.1.0.11:8080/analyze
+POST http://10.2.0.11:8080/analyze
 
 Request:
 {
@@ -431,7 +431,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "10.1.0.11:8080:8080"
+      - "10.2.0.11:8080:8080"
     deploy:
       resources:
         limits:
@@ -449,7 +449,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.11:9100:9100"
+      - "10.2.0.11:9100:9100"
 ```
 
 ### Environment Variables
@@ -491,7 +491,7 @@ MOOD_CONTEXT_WINDOW_SIZE=5
 MOOD_DISENGAGEMENT_THRESHOLD=0.7
 
 # Redis (кеш mood + context window)
-REDIS_URL=redis://:xxx@10.1.0.4:6379/9
+REDIS_URL=redis://:xxx@10.2.0.4:6379/9
 MOOD_CACHE_TTL_MESSAGE=3600
 MOOD_CACHE_TTL_LATEST=86400
 ```
@@ -499,7 +499,7 @@ MOOD_CACHE_TTL_LATEST=86400
 ### API Endpoint
 
 ```
-POST http://10.1.0.11:8080/analyze
+POST http://10.2.0.11:8080/analyze
 
 Request:
 {
@@ -556,9 +556,9 @@ Latency target: < 200ms (p95)
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | voice |
-| **Private IP** | 10.1.0.12 |
-| **Тип** | Hetzner CPX21 |
-| **vCPU** | 3 |
+| **Private IP** | 10.2.0.12 |
+| **Тип** | Local (2 vCPU / 4 GB) |
+| **vCPU** | 2 |
 | **RAM** | 4 GB |
 | **Disk** | 80 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
@@ -567,13 +567,13 @@ Latency target: < 200ms (p95)
 
 Управление голосовым выводом UNDE-аватара:
 - Проксирование вызовов к ElevenLabs Conversational TTS v3 (Expressive Mode)
-- Приём текста от LLM Orchestrator + voice_params от Persona Agent (10.1.0.21) → синтез речи с правильной интонацией
+- Приём текста от LLM Orchestrator + voice_params от Persona Agent (10.2.0.21) → синтез речи с правильной интонацией
 - **Примечание:** voice_params формируются Persona Agent (а не Mood Agent напрямую). Persona Agent получает mood_frame и на его основе выбирает voice preset (6 пресетов: friendly_upbeat, friendly_warm, soft_calm, soft_empathetic, neutral_confident, energetic_happy)
 - Стриминг аудио (chunked) в приложение через WebSocket
 - Кеширование часто используемых фраз (приветствия, подтверждения)
 - Логирование latency
 
-### Почему CPX21
+### Почему Local (2 vCPU / 4 GB)
 
 Voice Server — I/O bound: отправляет текст в ElevenLabs, стримит аудио обратно. CPU не нагружен. RAM нужен для буферизации аудио-стримов при нескольких одновременных пользователях. 4 GB достаточно для MVP.
 
@@ -592,10 +592,10 @@ Voice Server — I/O bound: отправляет текст в ElevenLabs, ст�
 │  Orchestrator   │
 └────────┬────────┘
          │
-         │  + voice_params от Persona Agent (10.1.0.21)
+         │  + voice_params от Persona Agent (10.2.0.21)
          ▼
 ┌────────────────────────────────────────────────────┐
-│  VOICE SERVER (10.1.0.12)                          │
+│  VOICE SERVER (10.2.0.12)                          │
 │                                                    │
 │  1. Принять текст + voice_params (от Persona Agent) │
 │  2. Маппинг voice_params → ElevenLabs settings:    │
@@ -652,8 +652,8 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "10.1.0.12:8080:8080"
-      - "10.1.0.12:8081:8081"   # WebSocket для audio streaming
+      - "10.2.0.12:8080:8080"
+      - "10.2.0.12:8081:8081"   # WebSocket для audio streaming
     deploy:
       resources:
         limits:
@@ -671,7 +671,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.12:9100:9100"
+      - "10.2.0.12:9100:9100"
 ```
 
 ### Environment Variables
@@ -690,7 +690,7 @@ VOICE_WS_PORT=8081
 VOICE_WORKERS=4
 
 # Redis (кеш фраз + буфер)
-REDIS_URL=redis://:xxx@10.1.0.4:6379/10
+REDIS_URL=redis://:xxx@10.2.0.4:6379/10
 
 # Audio
 AUDIO_FORMAT=mp3_44100_128
@@ -705,7 +705,7 @@ ELEVENLABS_TIMEOUT=5
 
 ```
 # Синхронный TTS (короткие фразы, кешируемые)
-POST http://10.1.0.12:8080/synthesize
+POST http://10.2.0.12:8080/synthesize
 Request:
 {
   "text": "Привет! Рада тебя видеть!",
@@ -715,7 +715,7 @@ Request:
 Response: audio/mpeg binary
 
 # Streaming TTS (основной режим для длинных ответов)
-WebSocket ws://10.1.0.12:8081/stream
+WebSocket ws://10.2.0.12:8081/stream
 Message:
 {
   "text": "Я нашла для тебя отличный образ...",
@@ -759,10 +759,10 @@ Response: binary audio chunks
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | llm-orchestrator |
-| **Private IP** | 10.1.0.17 |
-| **Тип** | Hetzner CPX21 |
-| **vCPU** | 3 |
-| **RAM** | 4 GB |
+| **Private IP** | 10.2.0.17 |
+| **Тип** | Local (8 vCPU / 16 GB) |
+| **vCPU** | 8 |
+| **RAM** | 16 GB |
 | **Disk** | 80 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
 
@@ -770,15 +770,15 @@ Response: binary audio chunks
 
 Генерация ответов аватара-консультанта — «мозг» диалога UNDE:
 - Сборка ContextPack из **трёх слоёв знания**:
-  - **A. User Knowledge** (факты) — из Dubai Shard (User Knowledge, AES-256)
+  - **A. User Knowledge** (факты) — из Local Shard (User Knowledge, AES-256)
   - **B. Semantic Retrieval** (эпизоды) — Hybrid Search (vector + FTS) по Chat History с pgvector, тематический temporal decay, confidence-adjusted λ, Episode Cards (raw_excerpt + snippet)
-  - **C. Context Agent** (мир вокруг) — context_frame от Context Agent (10.1.0.19): геолокация, погода, культура, события
-  - **+ mood_frame** от Mood Agent (10.1.0.11)
-  - **+ persona_directive** от Persona Agent (10.1.0.21) — характер, тон, стиль, hard bans
+  - **C. Context Agent** (мир вокруг) — context_frame от Context Agent (10.2.0.19): геолокация, погода, культура, события
+  - **+ mood_frame** от Mood Agent (10.2.0.11)
+  - **+ persona_directive** от Persona Agent (10.2.0.21) — характер, тон, стиль, hard bans
   - **+ последние 10 сообщений** (поток диалога)
   - **+ Referenced Artifact** (если reply_to_id — реакция на артефакт)
   - **+ контекст каталога** из Production DB
-- **Persona Agent client** (10.1.0.21): POST /persona (~15ms, параллельно с embedding) → persona_directive (system prompt), voice_params (→ Voice Server), avatar_state + render_hints (→ App)
+- **Persona Agent client** (10.2.0.21): POST /persona (~15ms, параллельно с embedding) → persona_directive (system prompt), voice_params (→ Voice Server), avatar_state + render_hints (→ App)
 - **Embedding client** (Cohere / выбранный по eval): embed запрос → vector (~50ms), embed сообщения при ingestion (async)
 - Вызов основной LLM (DeepSeek / Gemini / Claude / Qwen) с полным контекстом
 - **Генерация response_description** для артефактов консультанта (template-based, sync ~0.1ms)
@@ -788,7 +788,7 @@ Response: binary audio chunks
 - Передача avatar_state + render_hints (от Persona Agent) в App для анимации Rive-аватара
 - **Instant Pattern Extraction** (Фикс 1A из KSP) — при INSERT user-сообщения: regex-match critical patterns (body_params, allergy, budget, hard_ban) на 4 языках (ru/en/ar/Arabizi). Срабатывание → INSERT/supersede в user_knowledge с evidence_message_ids. Latency: <1ms. Паттерны в конфигурационной таблице instant_patterns (Production DB).
 - **Memory Correction Detection** (Фикс 11 из KSP) — при INSERT user-сообщения: CORRECTION_PATTERNS regex (ru/en/ar/Arabizi). Срабатывание → пометить предыдущий assistant-ответ как correction_trigger, обновить User Knowledge (is_active=FALSE или is_disputed=TRUE), записать в memory_correction_log.
-- Сохранение сообщений (user + assistant) в Chat History на Dubai Shard
+- Сохранение сообщений (user + assistant) в Chat History на Local Shard
 - **ASYNC после ответа:** detect_behavioral_signals() → POST /persona/feedback (signal_id + exchange_id) → POST /persona/flush (exchange_id) — обратная связь для адаптации persona profile
 - **Emotional filter** — mood_frame → exclude болезненные воспоминания
 - **Memory Density Cap** — адаптивный (Фикс 6 из KSP): new users ≤3 episodes/30%, active ≤5/35%, mature ≤7/40%
@@ -874,7 +874,7 @@ def get_consultant_result(intent, context) -> ConsultantResult | None:
 **Когда Consultant Server становится своим (Фаза 2):**
 
 ```
-CONSULTANT SERVER (10.1.0.22, CPX21)
+CONSULTANT SERVER (10.2.0.22, Локальный сервер)
 ├── HTTP API: POST /consult
 │   Input: { user_profile_compact, intent, catalog_context,
 │            hard_bans, budget, occasion, season }
@@ -893,15 +893,15 @@ CONSULTANT SERVER (10.1.0.22, CPX21)
 ### Что НЕ делает LLM Orchestrator
 
 - ❌ Recognition pipeline (это Recognition Orchestrator, 10.1.0.9)
-- ❌ Эмоциональный анализ (это Mood Agent, 10.1.0.11)
-- ❌ Синтез речи (это Voice Server, 10.1.0.12)
-- ❌ Контекст реального мира (это Context Agent, 10.1.0.19)
+- ❌ Эмоциональный анализ (это Mood Agent, 10.2.0.11)
+- ❌ Синтез речи (это Voice Server, 10.2.0.12)
+- ❌ Контекст реального мира (это Context Agent, 10.2.0.19)
 - ❌ Fashion-рекомендации напрямую (это Consultant — Intelistyle на MVP, свой Consultant LLM на Фазе 2)
 - ❌ Реранкинг/тегинг товаров (это LLM Reranker, 10.1.0.16)
 
-### Почему CPX21
+### Почему Local (8 vCPU / 16 GB)
 
-I/O bound: основная работа — собрать контекст из нескольких БД/сервисов, отправить в LLM API, дождаться ответа, распределить результат. CPU не нагружен. 4 GB RAM достаточно для буферизации контекста нескольких одновременных пользователей на MVP.
+I/O bound: основная работа — собрать контекст из нескольких БД/сервисов, отправить в LLM API, дождаться ответа, распределить результат. Увеличенный CPU/RAM для масштабируемости и параллельной обработки нескольких пользователей.
 
 ### Почему отдельный сервер (а не контейнер на App Server)
 
@@ -919,10 +919,10 @@ I/O bound: основная работа — собрать контекст и�
     ▼
 ┌─────────────────┐
 │  App Server     │
-│  (10.1.0.2)     │
+│  (10.2.0.2)     │
 │  API endpoint   │
 └────────┬────────┘
-         │ Celery task → Redis (10.1.0.4:6379/11)
+         │ Celery task → Redis (10.2.0.4:6379/11)
          │
          │  ПАРАЛЛЕЛЬНЫЙ запуск:
     ┌────┴──────────────────────────────────┐
@@ -930,7 +930,7 @@ I/O bound: основная работа — собрать контекст и�
     ▼                                       ▼
 ┌───────────────────┐            ┌──────────────────────────────────┐
 │  MOOD AGENT       │            │  LLM ORCHESTRATOR                │
-│  10.1.0.11        │            │  10.1.0.17                       │
+│  10.2.0.11        │            │  10.2.0.17                       │
 │                   │            │                                  │
 │  mood_frame       │            │  Ожидает mood_frame, затем:      │
 │  (~50-200ms)      │────────────│  1. Собрать ContextPack          │
@@ -944,8 +944,8 @@ I/O bound: основная работа — собрать контекст и�
               │                     │               │
               ▼                     ▼               ▼
 ┌───────────────────┐  ┌───────────────┐  ┌──────────────────┐
-│  VOICE SERVER     │  │ Dubai Shard   │  │ Dubai Shard      │
-│  10.1.0.12        │  │ Chat History  │  │ User Knowledge   │
+│  VOICE SERVER     │  │ Local Shard   │  │ Local Shard      │
+│  10.2.0.12        │  │ Chat History  │  │ User Knowledge   │
 │  Текст → TTS      │  │ Сохранить msg │  │ Профиль юзера    │
 │  → 📱 аудио       │  └───────────────┘  └──────────────────┘
 └───────────────────┘
@@ -957,14 +957,14 @@ I/O bound: основная работа — собрать контекст и�
 📱 "Хочу пойти в кино сегодня"
     │
     ▼
-App Server (10.1.0.2)
+App Server (10.2.0.2)
     │
     ├──────────── ПАРАЛЛЕЛЬНО ────────────┐
     │                                      │
     ▼                                      ▼
 ┌──────────────┐              ┌────────────────────┐
 │ MOOD AGENT   │              │ CONTEXT AGENT      │
-│ (10.1.0.11)  │              │ (10.1.0.19)        │
+│ (10.2.0.11)  │              │ (10.2.0.19)        │
 │              │              │                    │
 │ Анализ тона  │              │ GPS → mall_id      │
 │ → mood_frame │              │ Weather API        │
@@ -980,11 +980,11 @@ App Server (10.1.0.2)
                     │   │
                     ▼   ▼
          ┌──────────────────────────────────────────┐
-         │  LLM ORCHESTRATOR (10.1.0.17)            │
+         │  LLM ORCHESTRATOR (10.2.0.17)            │
          │                                          │
          │  1. ПАРАЛЛЕЛЬНО (Фаза 2):                │
          │     a) Embed запрос → vector      (~50ms)│
-         │     b) POST /persona (10.1.0.21)  (~15ms)│
+         │     b) POST /persona (10.2.0.21)  (~15ms)│
          │        → persona_directive               │
          │        → voice_params                    │
          │        → avatar_state + render_hints     │
@@ -1309,7 +1309,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.17:9100:9100"
+      - "10.2.0.17:9100:9100"
 ```
 
 **4 concurrent workers:** каждый worker ждёт ответ от LLM API (2-10 сек). 4 workers = до 4 одновременных диалогов. Масштабируется горизонтально.
@@ -1968,12 +1968,12 @@ EMBEDDING_DIM=1024
 
 # Celery (Redis на Push Server)
 REDIS_PASSWORD=xxx
-CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@10.1.0.4:6379/11
-CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@10.1.0.4:6379/11
+CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@10.2.0.4:6379/11
+CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@10.2.0.4:6379/11
 
-# Dubai Shard (Chat History + User Knowledge — шардированный)
+# Local Shard (Chat History + User Knowledge — шардированный)
 # Routing через Production DB или Redis: user_id → shard connection string
-SHARD_ROUTING_REDIS_URL=redis://:${REDIS_PASSWORD}@10.1.0.4:6379/12
+SHARD_ROUTING_REDIS_URL=redis://:${REDIS_PASSWORD}@10.2.0.4:6379/12
 # Или прямое подключение для одного шарда (MVP):
 SHARD_0_DB_URL=postgresql://app_rw:xxx@dubai-shard-0:6432/unde_shard
 
@@ -1984,24 +1984,24 @@ MASTER_ENCRYPTION_KEY=base64_encoded_32_byte_key
 PRODUCTION_DB_URL=postgresql://undeuser:xxx@10.1.1.2:6432/unde_main
 
 # Mood Agent
-MOOD_AGENT_URL=http://10.1.0.11:8080
+MOOD_AGENT_URL=http://10.2.0.11:8080
 
 # Context Agent
-CONTEXT_AGENT_URL=http://10.1.0.19:8080
+CONTEXT_AGENT_URL=http://10.2.0.19:8080
 
 # Persona Agent
-PERSONA_AGENT_URL=http://10.1.0.21:8080
+PERSONA_AGENT_URL=http://10.2.0.21:8080
 
 # Voice Server
-VOICE_SERVER_URL=http://10.1.0.12:8080
+VOICE_SERVER_URL=http://10.2.0.12:8080
 
 # Consultant (fashion recommendations)
 # MVP: Intelistyle (внешний SaaS)
-# Фаза 2: собственный Consultant LLM (10.1.0.22)
+# Фаза 2: собственный Consultant LLM (10.2.0.22)
 CONSULTANT_BACKEND=intelistyle
 INTELISTYLE_API_KEY=xxx
 INTELISTYLE_API_URL=https://api.intelistyle.com/v3
-# CONSULTANT_LLM_URL=http://10.1.0.22:8080  # Фаза 2
+# CONSULTANT_LLM_URL=http://10.2.0.22:8080  # Фаза 2
 
 # Recognition Orchestrator (для фото-запросов)
 RECOGNITION_QUEUE=recognition_queue
@@ -2080,10 +2080,10 @@ EMBEDDING_TIMEOUT=3
 │   │   ├── consultant_llm.py   # Свой Consultant LLM (Фаза 2)
 │   │   └── response_description.py  # Template-based response_description
 │   ├── clients/
-│   │   ├── mood_agent.py       # HTTP client → 10.1.0.11
-│   │   ├── context_agent.py    # HTTP client → 10.1.0.19
-│   │   ├── persona_agent.py    # HTTP client → 10.1.0.21 (persona + feedback + flush)
-│   │   └── voice_server.py     # HTTP client → 10.1.0.12
+│   │   ├── mood_agent.py       # HTTP client → 10.2.0.11
+│   │   ├── context_agent.py    # HTTP client → 10.2.0.19
+│   │   ├── persona_agent.py    # HTTP client → 10.2.0.21 (persona + feedback + flush)
+│   │   └── voice_server.py     # HTTP client → 10.2.0.12
 │   ├── db.py
 │   └── models.py               # Pydantic: ContextPack, LLMResponse, Intent, MoodFrame
 ├── scripts/
@@ -2160,9 +2160,9 @@ Celery worker = 1 Python-процесс блокируется на LLM API 3-5 
 │  ГОРИЗОНТ 1: MVP → 10K MAU                                     │
 │  Архитектура: Celery workers, Docker Compose, 1 shard           │
 │                                                                 │
-│  LLM Orchestrator: 1 × CPX21, 4-8 workers                      │
+│  LLM Orchestrator: 1 × Local (8 vCPU / 16 GB), 4-8 workers     │
 │  Agents: по 1 инстансу каждый                                   │
-│  Dubai Shard: 1 × 256 GB                                        │
+│  Local Shard: 1 × 256 GB                                        │
 │  Deployment: Docker Compose + ansible                           │
 │  Peak RPS: ~2-3 msg/sec                                         │
 │  Стоимость: ~$2,000/мес                                         │
@@ -2175,9 +2175,9 @@ Celery worker = 1 Python-процесс блокируется на LLM API 3-5 
 │                                                                 │
 │  LLM Orchestrator: 5-15 pods (auto-scale by queue depth)        │
 │  Agents: 3-5 реплик каждый, за Load Balancer                    │
-│  Dubai Shards: 3-5 × 256 GB (routing по user_id)                │
+│  Local Shards: 3-5 × 256 GB (routing по user_id)                │
 │  Redis: Cluster (3 nodes) вместо single                         │
-│  Deployment: Kubernetes (Hetzner k3s или managed)               │
+│  Deployment: Kubernetes (Локальный сервер k3s или managed)      │
 │  Peak RPS: ~15-50 msg/sec                                       │
 │  Стоимость: ~$8,000-15,000/мес                                  │
 ├─────────────────────────────────────────────────────────────────┤
@@ -2191,10 +2191,10 @@ Celery worker = 1 Python-процесс блокируется на LLM API 3-5 
 │    → DeepSeek/Gemini только для Level 2-3                       │
 │  КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Semantic Cache для повторяющихся запросов  │
 │    → -40% LLM API cost                                          │
-│  Dubai Shards: 10-25 × 256 GB                                   │
+│  Local Shards: 10-25 × 256 GB                                   │
 │  Consultant: собственный fine-tuned fashion LLM                 │
 │  Redis: Cluster (6+ nodes)                                      │
-│  Deployment: K8s multi-cluster (Dubai + Hetzner)                │
+│  Deployment: K8s multi-cluster (Dubai + Локальный сервер)       │
 │  Peak RPS: 50-200 msg/sec                                       │
 │  Стоимость: ~$30,000-60,000/мес                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -2354,7 +2354,7 @@ Context Agent pods  1          1          2          4
 Persona Agent pods  1          1          2          4
 Voice Server pods   1          3          5          15
 
-Dubai Shards        1          3          5          25
+Local Shards        1          3          5          25
 Shard Replicas      1          3          5          25
 
 Redis nodes         1          3          3          6
@@ -2375,8 +2375,8 @@ TTS concurrent      2          10         15***      50***
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | context-agent |
-| **Private IP** | 10.1.0.19 |
-| **Тип** | Hetzner CPX11 |
+| **Private IP** | 10.2.0.19 |
+| **Тип** | Local (2 vCPU / 4 GB) |
 | **vCPU** | 2 |
 | **RAM** | 4 GB |
 | **Disk** | 40 GB NVMe |
@@ -2415,7 +2415,7 @@ Context Agent → что ВОКРУГ юзера сейчас  (внешнее)
 ### HTTP API
 
 ```
-POST http://10.1.0.19:8080/context
+POST http://10.2.0.19:8080/context
 
 Request:
 {
@@ -2514,7 +2514,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "10.1.0.19:8080:8080"
+      - "10.2.0.19:8080:8080"
     deploy:
       resources:
         limits:
@@ -2531,7 +2531,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.19:9100:9100"
+      - "10.2.0.19:9100:9100"
 ```
 
 ### Environment Variables
@@ -2597,8 +2597,8 @@ CULTURAL_CACHE_TTL=86400     # 24 часа
 | Параметр | Значение |
 |----------|----------|
 | **Hostname** | persona-agent |
-| **Private IP** | 10.1.0.21 |
-| **Тип** | Hetzner CPX11 |
+| **Private IP** | 10.2.0.21 |
+| **Тип** | Local (2 vCPU / 4 GB) |
 | **vCPU** | 2 |
 | **RAM** | 4 GB |
 | **Disk** | 40 GB NVMe |
@@ -2625,24 +2625,24 @@ CULTURAL_CACHE_TTL=86400     # 24 часа
 
 ### Что НЕ делает
 
-- ❌ Не анализирует эмоции юзера (это Mood Agent, 10.1.0.11)
-- ❌ Не знает что вокруг юзера (это Context Agent, 10.1.0.19)
-- ❌ Не генерирует текст ответа (это LLM Orchestrator, 10.1.0.17)
-- ❌ Не синтезирует речь (это Voice Server, 10.1.0.12)
+- ❌ Не анализирует эмоции юзера (это Mood Agent, 10.2.0.11)
+- ❌ Не знает что вокруг юзера (это Context Agent, 10.2.0.19)
+- ❌ Не генерирует текст ответа (это LLM Orchestrator, 10.2.0.17)
+- ❌ Не синтезирует речь (это Voice Server, 10.2.0.12)
 - Он — актуатор: принимает mood_frame + context_frame + профиль, отдаёт поведенческие директивы
 
-### Почему CPX11
+### Почему Local (2 vCPU / 4 GB)
 
 Чистый rule-based engine: lookup профиля, применение правил, JSON-формирование. Ноль LLM-вызовов. Целевая latency: <15ms p95. Минимум CPU/RAM.
 
 ### Расположение в инфраструктуре
 
 ```
-                Mood Agent (10.1.0.11)
+                Mood Agent (10.2.0.11)
                     │ mood_frame
                     ▼
 ┌──────────────────────────────────────────────────┐
-│  LLM ORCHESTRATOR (10.1.0.17)                    │
+│  LLM ORCHESTRATOR (10.2.0.17)                    │
 │                                                  │
 │  Фаза 2 (параллельно с embedding):              │
 │  ├── Embed запрос (~50ms)                        │
@@ -2656,7 +2656,7 @@ CULTURAL_CACHE_TTL=86400     # 24 часа
 │               render_hints                       │
 │                                                  │
 │  persona_directive → system prompt для LLM       │
-│  voice_params → Voice Server (10.1.0.12)         │
+│  voice_params → Voice Server (10.2.0.12)         │
 │  avatar_state + render_hints → App (📱)          │
 └──────────────────────────────────────────────────┘
 ```
@@ -2664,24 +2664,24 @@ CULTURAL_CACHE_TTL=86400     # 24 часа
 ### HTTP API
 
 ```
-POST http://10.1.0.21:8080/persona
+POST http://10.2.0.21:8080/persona
   Input: { user_id, mood_frame, context_frame, user_intent,
            persona_profile, relationship_stage, user_knowledge_compact,
            last_n_response_meta }
   Output: { persona_directive, voice_params, avatar_state, render_hints, debug }
   Latency: < 15ms p95
 
-POST http://10.1.0.21:8080/persona/feedback
+POST http://10.2.0.21:8080/persona/feedback
   Input: { user_id, signal_id, exchange_id, signal_type, signal_data }
   Output: { buffered: true }
   Назначение: буферизация behavioral signals (14 типов)
 
-POST http://10.1.0.21:8080/persona/flush
+POST http://10.2.0.21:8080/persona/flush
   Input: { user_id, exchange_id }
   Output: { resolved, discarded, applied, stale_flushed }
   Назначение: resolve_and_apply() после end-of-utterance
 
-GET http://10.1.0.21:8080/persona/profile?user_id=...
+GET http://10.2.0.21:8080/persona/profile?user_id=...
   Output: { persona_profile, relationship_stage, temp_blocks }
   Назначение: дебаг / Settings UI
 ```
@@ -2708,7 +2708,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "10.1.0.21:8080:8080"
+      - "10.2.0.21:8080:8080"
     deploy:
       resources:
         limits:
@@ -2726,7 +2726,7 @@ services:
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "10.1.0.21:9100:9100"
+      - "10.2.0.21:9100:9100"
 ```
 
 ### Environment Variables
@@ -2734,12 +2734,12 @@ services:
 ```bash
 # /opt/unde/persona-agent/.env
 
-# Dubai Shard (relationship_stage, persona_temp_blocks, signal_daily_deltas)
-SHARD_ROUTING_REDIS_URL=redis://:${REDIS_PASSWORD}@10.1.0.4:6379/12
+# Local Shard (relationship_stage, persona_temp_blocks, signal_daily_deltas)
+SHARD_ROUTING_REDIS_URL=redis://:${REDIS_PASSWORD}@10.2.0.4:6379/12
 SHARD_0_DB_URL=postgresql://app_rw:xxx@dubai-shard-0:6432/unde_shard
 
 # Redis (idempotency store + signal buffer + distributed lock)
-REDIS_URL=redis://:xxx@10.1.0.4:6379/13
+REDIS_URL=redis://:xxx@10.2.0.4:6379/13
 
 # Server
 PERSONA_PORT=8080
