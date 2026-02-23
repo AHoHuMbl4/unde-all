@@ -247,31 +247,26 @@ psql -h 10.1.0.8 -p 6432 -U scraper -d unde_staging
 ### День 3: Apify Server (метаданные)
 
 ```bash
-# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.0.9
-
-apt update && apt install -y docker.io docker-compose
-git clone http://gitlab-real.unde.life/unde/apify-collector.git /opt/unde/apify
-cd /opt/unde/apify
-cp .env.example .env  # Заполнить: Apify Token, Staging DB
-docker-compose up -d
+# ✅ Развёрнут (CX23, 10.1.0.9, 89.167.110.186)
+# Git: http://gitlab-real.unde.life/unde/apify.git
+# Docker: apify-collector + apify-beat (running)
+# node_exporter 1.8.2 (systemd)
 
 # Тест
-docker-compose exec apify-collector python -c "from tasks import collect_brand; collect_brand('zara', limit=100)"
+docker compose exec apify-collector python -c "from app.tasks import collect_brand; collect_brand.delay('zara')"
 ```
 
 ### День 3b: Photo Downloader
 
 ```bash
-# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.0.10
-
-apt update && apt install -y docker.io docker-compose
-git clone http://gitlab-real.unde.life/unde/photo-downloader.git /opt/unde/photo-downloader
-cd /opt/unde/photo-downloader
-cp .env.example .env  # Заполнить: Staging DB, S3 credentials
-docker-compose up -d
+# ✅ Развёрнут (CX23, 10.1.0.10, 89.167.99.242)
+# Git: http://gitlab-real.unde.life/unde/photo-downloader.git
+# Docker: photo-downloader + downloader-beat (running)
+# node_exporter 1.8.2 (systemd)
+# Скачивание через Bright Data residential proxy
 
 # Тест (после Apify собрал метаданные)
-docker-compose exec photo-downloader python -c "from tasks import download_pending; download_pending(limit=10)"
+docker compose exec photo-downloader python -c "from app.tasks import download_pending; download_pending.delay()"
 ```
 
 ### День 3c: Ximilar Sync Server

@@ -49,7 +49,7 @@ DUBAI_ZARA_STORES=PLACEHOLDER_STORE_IDS
 
 ---
 
-## 2. APIFY SERVER (новый)
+## 2. APIFY SERVER (✅ Работает)
 
 ### Информация
 
@@ -57,11 +57,14 @@ DUBAI_ZARA_STORES=PLACEHOLDER_STORE_IDS
 |----------|----------|
 | **Hostname** | apify |
 | **Private IP** | 10.1.0.9 |
+| **Public IP** | 89.167.110.186 |
 | **Тип** | Hetzner CX23 |
 | **vCPU** | 2 |
 | **RAM** | 4 GB |
 | **Disk** | 40 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
+| **Git** | http://gitlab-real.unde.life/unde/apify.git |
+| **Статус** | ✅ Развёрнут, контейнеры running |
 
 ### Назначение
 
@@ -95,40 +98,31 @@ services:
     build: .
     container_name: apify-collector
     restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
     env_file: .env
     deploy:
       resources:
         limits:
           memory: 2G
 
-  celery-beat:
+  apify-beat:
     build: .
     container_name: apify-beat
     restart: unless-stopped
-    command: celery -A tasks beat --loglevel=info
+    command: celery -A app.celery_app beat --loglevel=info --schedule=/app/data/celerybeat-schedule
     env_file: .env
-
-  node-exporter:
-    image: prom/node-exporter:v1.7.0
-    container_name: node-exporter
-    restart: unless-stopped
-    ports:
-      - "10.1.0.9:9100:9100"
 ```
+
+> node_exporter v1.8.2 установлен как systemd сервис (0.0.0.0:9100), не в Docker.
 
 ### Environment Variables
 
 ```bash
 # /opt/unde/apify/.env
 
-# Apify
-APIFY_TOKEN=apify_api_xxx
-
-# Staging DB
-STAGING_DB_URL=postgresql://apify:xxx@10.1.0.8:6432/unde_staging
-
-# Redis (Push Server)
-REDIS_URL=redis://:xxx@10.1.0.4:6379/7
+APIFY_TOKEN=<Apify PAT token>
+STAGING_DB_URL=postgresql://apify:<password>@10.1.0.8:6432/unde_staging
+REDIS_URL=redis://:<password>@10.1.0.4:6379/7
 ```
 
 ### Интеграция с Apify
@@ -264,7 +258,7 @@ def collect_brand(brand: str, task_id: str):
 
 ---
 
-## 3. PHOTO DOWNLOADER (новый)
+## 3. PHOTO DOWNLOADER (✅ Работает)
 
 ### Информация
 
@@ -272,18 +266,21 @@ def collect_brand(brand: str, task_id: str):
 |----------|----------|
 | **Hostname** | photo-downloader |
 | **Private IP** | 10.1.0.10 |
+| **Public IP** | 89.167.99.242 |
 | **Тип** | Hetzner CX23 |
 | **vCPU** | 2 |
 | **RAM** | 4 GB |
 | **Disk** | 40 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
+| **Git** | http://gitlab-real.unde.life/unde/photo-downloader.git |
+| **Статус** | ✅ Развёрнут, контейнеры running |
 
 ### Назначение
 
-Скачивание фото товаров с сайтов брендов и upload в Object Storage:
+Скачивание фото товаров с сайтов брендов **через Bright Data residential proxy** и upload в Object Storage:
 - Мониторит Staging DB на записи с `image_status='pending'`
-- Скачивает фото по URL из метаданных (до 5 фото на товар)
-- Загружает в Object Storage (`/originals/`)
+- Скачивает фото по URL из метаданных через прокси (до 5 фото на товар)
+- Загружает в Object Storage (`/originals/`) напрямую (без прокси)
 - Обновляет статус на `image_status='uploaded'`
 
 ### Почему отдельный сервер
@@ -291,7 +288,7 @@ def collect_brand(brand: str, task_id: str):
 - **Самая хрупкая часть pipeline:** бренды блокируют IP, таймауты, rate limits, капчи
 - **Самая тяжёлая по трафику:** ~47K товаров × 5 фото × 300KB = ~70 GB за один цикл
 - **Разная частота отказов:** Apify API может работать, а скачивание фото — нет (и наоборот)
-- **Отдельный IP:** если заблокируют IP этого сервера, метаданные продолжат собираться
+- **Residential proxy:** Bright Data — каждый запрос с нового residential IP, автоматическая ротация
 
 ### Задачи
 
@@ -309,90 +306,111 @@ services:
     build: .
     container_name: photo-downloader
     restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
     env_file: .env
     volumes:
+      - ./app:/app/app
       - ./data:/app/data
     deploy:
       resources:
         limits:
           memory: 2G
 
-  celery-beat:
+  downloader-beat:
     build: .
     container_name: downloader-beat
     restart: unless-stopped
-    command: celery -A tasks beat --loglevel=info
+    command: celery -A app.celery_app beat --loglevel=info --schedule=/app/data/celerybeat-schedule
     env_file: .env
-
-  node-exporter:
-    image: prom/node-exporter:v1.7.0
-    container_name: node-exporter
-    restart: unless-stopped
-    ports:
-      - "10.1.0.10:9100:9100"
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
 ```
+
+> node_exporter v1.8.2 установлен как systemd сервис (0.0.0.0:9100), не в Docker.
 
 ### Environment Variables
 
 ```bash
 # /opt/unde/photo-downloader/.env
 
-# Staging DB
-STAGING_DB_URL=postgresql://downloader:xxx@10.1.0.8:6432/unde_staging
-
-# Hetzner Object Storage
+STAGING_DB_URL=postgresql://downloader:<password>@10.1.0.8:6432/unde_staging
+REDIS_URL=redis://:<password>@10.1.0.4:6379/7
+PROXY_URL=http://brd-customer-hl_b9a99adf-zone-zara:<password>@brd.superproxy.io:33335
 S3_ENDPOINT=https://hel1.your-objectstorage.com
-S3_ACCESS_KEY=xxx
-S3_SECRET_KEY=xxx
+S3_ACCESS_KEY=<access_key>
+S3_SECRET_KEY=<secret_key>
 S3_BUCKET=unde-images
-
-# Redis (Push Server)
-REDIS_URL=redis://:xxx@10.1.0.4:6379/7
-
-# Processing
 DOWNLOAD_TIMEOUT=30
 MAX_RETRIES=3
 BATCH_SIZE=200
 CONCURRENT_DOWNLOADS=10
 ```
 
+### Bright Data Proxy
+
+Все запросы на скачивание фото идут через Bright Data residential proxy.
+Upload в S3 идёт напрямую (без прокси).
+
+| Механизм | Описание |
+|----------|----------|
+| Провайдер | Bright Data (brd.superproxy.io:33335) |
+| Тип | Residential — каждый запрос с нового IP |
+| User-Agent | Ротация из 8 реальных браузерных строк |
+| Rate limiting | Max 10 concurrent |
+| Delay | 0.5–2 сек между запросами |
+| Backoff | При 429/503: 5s → 15s → 45s → error |
+| Timeout | 30 сек на фото, 120 сек на товар |
+
 ### Процесс скачивания
 
 ```python
-# Псевдокод
+import aiohttp, asyncio
 
-def download_pending():
+async def download_pending():
     products = db.query("""
         SELECT id, external_id, brand, original_image_urls
         FROM raw_products
         WHERE image_status = 'pending'
         LIMIT 200
     """)
-    
-    for product in products:
-        try:
-            uploaded_urls = []
-            for i, url in enumerate(product.original_image_urls[:5]):
-                response = requests.get(url, timeout=30)
-                local_path = f"/app/data/{product.external_id}_{i}.jpg"
-                save(response.content, local_path)
-                
-                key = f"originals/{product.brand}/{product.external_id}/{i+1}.jpg"
-                s3.upload_file(local_path, S3_BUCKET, key)
-                uploaded_urls.append(f"{S3_ENDPOINT}/{S3_BUCKET}/{key}")
-                os.remove(local_path)
-            
-            db.execute("""
-                UPDATE raw_products
-                SET image_urls = ?, image_status = 'uploaded'
-                WHERE id = ?
-            """, json.dumps(uploaded_urls), product.id)
-        except Exception as e:
-            db.execute("""
-                UPDATE raw_products
-                SET image_status = 'error', error_message = ?
-                WHERE id = ?
-            """, str(e), product.id)
+
+    proxy = os.environ["PROXY_URL"]
+
+    async with aiohttp.ClientSession() as session:
+        for product in products:
+            try:
+                uploaded_urls = []
+                for i, url in enumerate(product.original_image_urls[:5]):
+                    # Заменить {width} плейсхолдер
+                    url = url.replace("{width}", "1920")
+
+                    # Скачать через Bright Data residential proxy
+                    async with session.get(url, proxy=proxy, ssl=False,
+                                           timeout=aiohttp.ClientTimeout(total=30),
+                                           headers={"User-Agent": random_ua()}) as resp:
+                        data = await resp.read()
+
+                    # Валидация (Pillow)
+                    Image.open(io.BytesIO(data)).verify()
+
+                    # Upload в S3 напрямую (без proxy)
+                    key = f"originals/{product.brand}/{product.external_id}/{i+1}.jpg"
+                    s3.upload_fileobj(io.BytesIO(data), S3_BUCKET, key)
+                    uploaded_urls.append(
+                        f"https://unde-images.hel1.your-objectstorage.com/{key}")
+
+                db.execute("""
+                    UPDATE raw_products
+                    SET image_urls = %s, image_status = 'uploaded', updated_at = NOW()
+                    WHERE id = %s
+                """, json.dumps(uploaded_urls), product.id)
+            except Exception as e:
+                db.execute("""
+                    UPDATE raw_products
+                    SET image_status = 'error', error_message = %s, updated_at = NOW()
+                    WHERE id = %s
+                """, str(e), product.id)
 ```
 
 ### Структура директорий

@@ -183,10 +183,10 @@
 
 | # | Сервер | IP (private) | Тип | €/мес | Задача | Статус |
 |---|--------|-------------|-----|-------|--------|--------|
-| H7 | **apify** | 10.1.0.9 | CX23 | €12 | Сбор метаданных каталога (Apify.com) | ✅ Создан |
+| H7 | **apify** | 10.1.0.9 | CX23 | €12 | Сбор метаданных каталога (Apify.com) | ✅ Развёрнут |
 | H8 | **collage** | 10.1.0.16 | CX33 | €25 | Склейка фото | ✅ Создан |
 | H9 | **recognition** | 10.1.0.14 | CX23 | €6 | Recognition Orchestrator | ✅ Создан |
-| H10 | **photo-downloader** | 10.1.0.10 | CX23 | €12 | Скачивание фото брендов → Object Storage | ✅ Создан |
+| H10 | **photo-downloader** | 10.1.0.10 | CX23 | €12 | Скачивание фото → Object Storage (Bright Data proxy) | ✅ Развёрнут |
 | H11 | **ximilar-sync** | 10.1.0.11 | CX23 | €6 | Синхронизация каталога → Ximilar Collection | ✅ Создан |
 | H12 | **ximilar-gw** | 10.1.0.12 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Создан |
 | H13 | **llm-reranker** | 10.1.0.13 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Создан |
