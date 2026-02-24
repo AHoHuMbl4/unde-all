@@ -1,6 +1,6 @@
 # UNDE Infrastructure — Каталог: сбор, фото, хранение
 
-*Часть [TZ Infrastructure v6.2](../TZ_Infrastructure_Final.md). Серверы каталожного pipeline.*
+*Серверы каталожного pipeline.*
 
 ---
 

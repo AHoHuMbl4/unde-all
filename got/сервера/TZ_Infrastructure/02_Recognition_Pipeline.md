@@ -1,6 +1,6 @@
 # UNDE Infrastructure — Fashion Recognition Pipeline
 
-*Часть [TZ Infrastructure v6.2](../TZ_Infrastructure_Final.md). Серверы распознавания одежды.*
+*Серверы распознавания одежды.*
 
 ---
 

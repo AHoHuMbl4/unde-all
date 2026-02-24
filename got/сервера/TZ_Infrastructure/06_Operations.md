@@ -650,8 +650,6 @@ Tombstone Registry:
 
 **Context Agent** имеет доступ к интернету для Weather API, но не принимает входящих из интернета.
 
-Остальные серверы — правила те же, что в v5.
-
 ### Credentials
 
 | Секрет | Где хранится | Кто использует |
@@ -685,26 +683,4 @@ Tombstone Registry:
 
 ---
 
-*Документ создан: 2026-02-01*
-*Обновлено: 2026-02-16 — v6.2. Интеграция UNDE_Persona_Voice_Layer v0.7.0:*
-*— Новый сервер: Persona Agent (10.1.0.21, CPX11) — единый источник правды для поведения аватара*
-*— Persona Agent вызывается из LLM Orchestrator (Фаза 2, параллельно с embedding, ~15ms)*
-*— 4 выхода: persona_directive → LLM, voice_params → Voice Server, avatar_state → Rive, render_hints → App*
-*— voice_params теперь от Persona Agent (а не от Mood Agent напрямую). Зависимость: Mood → Persona (сенсор → актуатор)*
-*— Новые таблицы на Local Shard: relationship_stage, persona_temp_blocks, signal_daily_deltas*
-*— Async feedback loop: behavioral signals → SignalBuffer per exchange_id → conflict graph → conservative wins*
-*— persona_contract: версионируемый Python-пакет (major version check), 66 golden tests (GT + CT)*
-*— Обновлены: LLM Orchestrator (pipeline, env, clients), Voice Server, Data Flow, мониторинг, деплой, безопасность*
-*
-*Обновлено: 2026-02-15 — v6.1. Интеграция решений из UNDE_Infrastructure_BD и UNDE_Smart_Context_Architecture:*
-*— Chat History DB и User Knowledge DB объединены в Dubai User Data Shard (bare metal, 256 GB RAM, tmpfs primary + Hetzner AX102 replica)*
-*— Streaming replication Dubai → Hetzner с Patroni + etcd для автоматического failover*
-*— Client-side verify-and-replay для нулевой потери данных при failover (включая регенерацию response_description при replay)*
-*— Application-level sharding по user_id*
-*— Схема Chat History обновлена: pgvector (1024-dim embeddings), 64 hash-партиции, FTS (tsvector), memory_type + memory_confidence, memory_snippets (MVP: NULL + raw_excerpt; Фаза 2: lazy gen), response_description (template-based), reply_to_id*
-*— Hybrid Search: vector (role='user') + FTS (все роли, включая assistant-артефакты через response_description) с тематическим temporal decay и confidence-adjusted λ*
-*— Добавлен Context Agent (10.1.0.19): геолокация, погода, культурный контекст, события, OpportunityMatcher*
-*— Три слоя знания в ContextPack: User Knowledge (факты) + Semantic Retrieval (эпизоды) + Context Agent (мир вокруг)*
-*— LLM Orchestrator обновлён: embedding client, Context Agent client, emotional filter, memory density cap, response_description (с обязательными токенами SKU/brand/store), reply_to_id (с защитой от неоднозначности)*
-*— Soft/Hard Forget механика, Tombstone Registry в Production DB*
-*Версия: 6.2*
+*Версия: 7.2*
