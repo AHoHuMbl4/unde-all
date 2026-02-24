@@ -164,20 +164,13 @@
 
 | # | Сервер | IP (private) | IP (public) | Тип | Статус |
 |---|--------|-------------|-------------|-----|--------|
-| H1 | **helsinki-gw** | 10.1.0.2 | 46.62.233.30 | CX23 | ✅ Установлен (бывший unde-app, переназначен как router) |
+| H1 | **helsinki-gw** | 10.1.0.2 | 46.62.233.30 | CX23 | ✅ Установлен |
 | H2 | scraper | 10.1.0.3 | 46.62.255.184 | CPX22 | ✅ Работает |
 | H3 | push | 10.1.0.4 | 77.42.30.44 | CPX32 | ✅ Работает |
 | H4 | model-generator | 10.1.0.5 | 89.167.20.60 | CPX22 | ✅ Работает |
 | H5 | tryon-service | 10.1.0.6 | 89.167.31.65 | CPX22 | ✅ Работает |
-| H6 | Production DB | 10.1.1.2 | — | AX41 (dedicated) | ✅ Работает |
+| H6 | Production DB | 10.1.1.2 | 135.181.209.26 | AX41 (dedicated) | ✅ Работает |
 | — | GitLab | — | gitlab-real.unde.life | — | ✅ Работает |
-
-**Изменение ролей существующих серверов:**
-
-| Сервер | Старая роль | Новая роль |
-|--------|-------------|-----------|
-| **unde-app (H1)** | API gateway (единственная точка входа) | **helsinki-gw** — Debian 12 + MikroTik CHR. WireGuard endpoint, routing, firewall |
-| **push (H3)** | Redis + Celery broker | **Batch Redis + Celery broker** — для recognition queue, catalog pipeline, enrichment TTL recovery. Hot path Redis → local-redis |
 
 ### Hetzner Helsinki — новые серверы
 
@@ -196,7 +189,6 @@
 | H17 | **etcd-3** | 10.1.0.15 | CX23 | €4 | etcd quorum node 3 (tiebreaker) | ✅ Создан |
 | H18 | **posthog** | 10.1.1.30 | Dedicated (Xeon, 64 GB, SATA) | ~€39 | PostHog self-hosted: product analytics | ✅ Создан |
 | H19 | **monitoring** | 10.1.0.7 | CX33 | €25 | Prometheus + Grafana + Alertmanager | ✅ Создан |
-| ~~H20~~ | ~~helsinki-gw~~ | — | — | — | Перенесён на H1 (бывший unde-app, CX23, 10.1.0.2 / 46.62.233.30) | ✅ Установлен |
 | — | **Object Storage** | hel1.your-objectstorage.com | S3-compatible | ~€10 | unde-images ✅, unde-user-media ✅, unde-shard-backups ✅ | ✅ Создан |
 
 ---
