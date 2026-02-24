@@ -437,7 +437,7 @@ async def download_pending():
 
 ---
 
-## 4. XIMILAR SYNC SERVER (новый)
+## 4. XIMILAR SYNC SERVER (✅ Работает)
 
 ### Информация
 
@@ -445,11 +445,14 @@ async def download_pending():
 |----------|----------|
 | **Hostname** | ximilar-sync |
 | **Private IP** | 10.1.0.11 |
+| **Public IP** | 89.167.93.187 |
 | **Тип** | Hetzner CX23 |
 | **vCPU** | 2 |
 | **RAM** | 4 GB |
 | **Disk** | 40 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
+| **Git** | http://gitlab-real.unde.life/unde/ximilar-sync.git |
+| **Статус** | ✅ Развёрнут, контейнеры running |
 
 ### Назначение
 
@@ -483,26 +486,28 @@ services:
     build: .
     container_name: ximilar-sync
     restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
     env_file: .env
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
     deploy:
       resources:
         limits:
           memory: 1G
 
-  celery-beat:
+  ximilar-beat:
     build: .
     container_name: ximilar-beat
     restart: unless-stopped
-    command: celery -A tasks beat --loglevel=info
+    command: celery -A app.celery_app beat --loglevel=info --schedule=/app/data/celerybeat-schedule
     env_file: .env
-
-  node-exporter:
-    image: prom/node-exporter:v1.7.0
-    container_name: node-exporter
-    restart: unless-stopped
-    ports:
-      - "10.1.0.11:9100:9100"
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
 ```
+
+> node_exporter v1.8.2 установлен как systemd сервис (0.0.0.0:9100), не в Docker.
 
 ### Environment Variables
 
@@ -510,14 +515,19 @@ services:
 # /opt/unde/ximilar-sync/.env
 
 # Staging DB
-STAGING_DB_URL=postgresql://ximilar:xxx@10.1.0.8:6432/unde_staging
+STAGING_DB_URL=postgresql://ximilar:<password>@10.1.0.8:6432/unde_staging
 
 # Ximilar
-XIMILAR_API_TOKEN=xxx
-XIMILAR_COLLECTION_ID=xxx
+XIMILAR_API_TOKEN=xxx                    # TODO: заполнить когда получим от Ximilar
+XIMILAR_COLLECTION_ID=xxx               # TODO: заполнить когда получим от Ximilar
+XIMILAR_API_URL=https://api.ximilar.com
+XIMILAR_RATE_LIMIT=10
 
 # Redis (Push Server)
-REDIS_URL=redis://:xxx@10.1.0.4:6379/7
+REDIS_URL=redis://:<password>@10.1.0.4:6379/7
+
+# Application
+BATCH_SIZE=1000
 ```
 
 ### Процесс синхронизации
@@ -589,7 +599,7 @@ def sync_to_ximilar():
 
 ---
 
-## 5. COLLAGE SERVER (новый)
+## 5. COLLAGE SERVER (✅ Работает)
 
 ### Информация
 
@@ -597,40 +607,47 @@ def sync_to_ximilar():
 |----------|----------|
 | **Hostname** | collage |
 | **Private IP** | 10.1.0.16 |
+| **Public IP** | 65.109.172.52 |
 | **Тип** | Hetzner CX33 |
 | **vCPU** | 4 |
 | **RAM** | 8 GB |
 | **Disk** | 80 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
+| **Git** | http://gitlab-real.unde.life/unde/collage.git |
+| **Статус** | ✅ Развёрнут, контейнеры running |
 
 ### Назначение
 
-Подготовка фото для virtual try-on:
-- Скачивание оригиналов из Object Storage
-- Склейка нескольких фото в один коллаж
-- Upload коллажей в Object Storage
-- Обновление URLs в Staging DB
+Подготовка фото для virtual try-on — один коллаж на SKU:
+- Скачивание **всех** оригиналов конкретного SKU из Object Storage
+- Склейка в горизонтальный коллаж (оригинальное разрешение, JPEG q=95, 4:4:4)
+- Upload коллажа в Object Storage
+- Обновление collage_url в Staging DB
 
 ### Что такое коллаж
 
 ```
-Оригиналы товара (до 5 фото):
-┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐
-│  1  │ │  2  │ │  3  │ │  4  │ │  5  │
-│перед│ │ зад │ │ бок │ │детал│ │модел│
-└─────┘ └─────┘ └─────┘ └─────┘ └─────┘
+Все фото одного SKU (image_urls из raw_products):
+┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐
+│  1  │ │  2  │ │  3  │ │  4  │  ... сколько есть
+│перед│ │ зад │ │ бок │ │детал│
+└─────┘ └─────┘ └─────┘ └─────┘
                     │
-                    ▼ Склейка по горизонтали
-    ┌─────────────────────────────────────┐
-    │  ┌───┐ ┌───┐ ┌───┐ ┌───┐ ┌───┐    │
-    │  │ 1 │ │ 2 │ │ 3 │ │ 4 │ │ 5 │    │
-    │  └───┘ └───┘ └───┘ └───┘ └───┘    │
-    │            КОЛЛАЖ ~500KB-1MB       │
-    └─────────────────────────────────────┘
+                    ▼ Горизонтальная склейка (без уменьшения!)
+    ┌───────────────────────────────┐
+    │ ┌───┐ ┌───┐ ┌───┐ ┌───┐     │
+    │ │ 1 │ │ 2 │ │ 3 │ │ 4 │ ... │
+    │ └───┘ └───┘ └───┘ └───┘     │
+    │  JPEG q=95, оригинальное     │
+    │  разрешение, 4:4:4           │
+    └───────────────────────────────┘
                     │
                     ▼
             fal.ai try-on получает
-            все ракурсы в одном файле
+            все ракурсы SKU в одном файле
+
+ВАЖНО: разрешение НЕ уменьшается. Качество коллажа
+напрямую влияет на качество virtual try-on.
 ```
 
 ### Задачи
@@ -649,8 +666,10 @@ services:
     build: .
     container_name: collage-worker
     restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
     env_file: .env
     volumes:
+      - ./app:/app/app
       - ./data:/app/data
     deploy:
       resources:
@@ -659,59 +678,72 @@ services:
         reservations:
           memory: 1G
 
-  celery-beat:
+  collage-beat:
     build: .
     container_name: collage-beat
     restart: unless-stopped
-    command: celery -A tasks beat --loglevel=info
+    command: celery -A app.celery_app beat --loglevel=info --schedule=/app/data/celerybeat-schedule
     env_file: .env
-
-  node-exporter:
-    image: prom/node-exporter:v1.7.0
-    container_name: node-exporter
-    restart: unless-stopped
-    ports:
-      - "10.1.0.16:9100:9100"
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
 ```
+
+> node_exporter v1.8.2 установлен как systemd сервис (0.0.0.0:9100), не в Docker.
 
 ### Environment Variables
 
 ```bash
 # /opt/unde/collage/.env
 
-STAGING_DB_URL=postgresql://collage:xxx@10.1.0.8:6432/unde_staging
+STAGING_DB_URL=postgresql://collage:<password>@10.1.0.8:6432/unde_staging
+REDIS_URL=redis://:<password>@10.1.0.4:6379/8
 S3_ENDPOINT=https://hel1.your-objectstorage.com
-S3_ACCESS_KEY=xxx
-S3_SECRET_KEY=xxx
+S3_ACCESS_KEY=<access_key>
+S3_SECRET_KEY=<secret_key>
 S3_BUCKET=unde-images
-REDIS_URL=redis://:xxx@10.1.0.4:6379/8
 BATCH_SIZE=100
-COLLAGE_MAX_WIDTH=2048
-COLLAGE_QUALITY=85
+COLLAGE_QUALITY=95
 ```
 
 ### Процесс обработки
 
 ```python
-def process_product(product_id: int):
-    product = db.query("SELECT ... FROM raw_products WHERE id = ? AND image_status = 'uploaded'", product_id)
-    
-    # Скачать оригиналы из Object Storage
+def process_sku(product_id: int):
+    """Склеить все фото одного SKU в горизонтальный коллаж."""
+    product = db.query(
+        "SELECT id, external_id, brand, image_urls FROM raw_products "
+        "WHERE id = %s AND image_status = 'uploaded'", product_id)
+
+    # Скачать ВСЕ оригиналы этого SKU из S3
     images = [Image.open(s3.download(url)) for url in product.image_urls]
-    
-    # Склеить по горизонтали
-    total_width = sum(img.width for img in images)
-    max_height = max(img.height for img in images)
-    collage = Image.new('RGB', (total_width, max_height), 'white')
-    x = 0
+
+    # Привести к одной высоте (max), сохраняя пропорции
+    target_height = max(img.height for img in images)
+    resized = []
     for img in images:
-        collage.paste(img, (x, 0))
-        x += img.width
-    
+        ratio = target_height / img.height
+        resized.append(img.resize((int(img.width * ratio), target_height), Image.LANCZOS))
+
+    # Склеить по горизонтали
+    total_width = sum(r.width for r in resized)
+    collage = Image.new('RGB', (total_width, target_height), (255, 255, 255))
+    x = 0
+    for r in resized:
+        collage.paste(r, (x, 0))
+        x += r.width
+
+    # JPEG q=95, subsampling=0 (4:4:4) — максимальное качество
+    buf = BytesIO()
+    collage.save(buf, format='JPEG', quality=95, subsampling=0)
+
     # Upload и обновить статус
-    collage_key = f"collages/{product.brand}/{product.external_id}.jpg"
-    s3.upload_file(collage, S3_BUCKET, collage_key)
-    db.execute("UPDATE raw_products SET collage_url = ?, image_status = 'collage_ready' WHERE id = ?", ...)
+    key = f"collages/{product.brand}/{product.external_id}.jpg"
+    s3.upload_fileobj(buf, S3_BUCKET, key)
+    collage_url = f"https://unde-images.hel1.your-objectstorage.com/{key}"
+    db.execute(
+        "UPDATE raw_products SET collage_url = %s, image_status = 'collage_ready', "
+        "updated_at = NOW() WHERE id = %s", collage_url, product.id)
 ```
 
 ---

@@ -611,7 +611,7 @@ vm.dirty_ratio = 10                 # Синхронная запись при 1
 
 **Async replication:** primary не ждёт подтверждения от replica → минимальная latency для клиента.
 
-**WireGuard туннель:** Каждый шард имеет свой WireGuard туннель до helsinki-gw (10.1.0.40). WAL streaming — основной потребитель трафика (~1–10 GB/день).
+**WireGuard туннель:** Каждый шард имеет свой WireGuard туннель до helsinki-gw (10.1.0.2). WAL streaming — основной потребитель трафика (~1–10 GB/день).
 
 ### Patroni + etcd: автоматический failover
 

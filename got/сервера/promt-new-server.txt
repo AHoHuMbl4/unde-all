@@ -1,0 +1,813 @@
+# Memory Bank + Rules + Git Backups (Claude Code + Cursor)
+
+> **Совместимость:** Claude Code CLI, Cursor IDE
+
+---
+
+## SERVER_NAME = collage
+
+> **Для AI-агента:** во всех создаваемых файлах и командах, где написано `{SERVER_NAME}`, подставь реальное значение — `collage`. НЕ оставляй `{SERVER_NAME}` как литеральную строку.
+
+## GitLab credentials
+
+- **URL:** http://gitlab-real.unde.life
+- **Group:** unde
+- **Token:** `glpat-DubSAfGWeEkHd4-D-suZtm86MQp1OjEH.01.0w1eeq22u`
+- **Username:** root
+
+> Это приватный сервер. Используй токен напрямую в командах git и curl. Хранение в репо допустимо.
+
+---
+
+Ты работаешь в CLI (Claude Code или Cursor) внутри репозитория.
+Твоя задача — создать Memory Bank (память проекта), правила для ОБОИХ инструментов (Claude Code + Cursor), и настроить git с обязательным push в приватный GitLab.
+
+## ОГРАНИЧЕНИЯ
+
+- **НЕ** делай фичи/рефактор продукта. Только: память, правила, git-бэкапы.
+- Если информации не хватает — ставь `<!-- TODO: ... -->` и собери вопросы в конце.
+
+---
+
+## ЧАСТЬ 0 — GIT + GITLAB REMOTE
+
+### 0.1) Проверка репозитория
+
+```bash
+# Проверь наличие .git/
+ls -la .git/ 2>/dev/null || git init
+
+# Проверь remote
+git remote -v
+```
+
+- Если `origin` нет — добавь:
+  ```bash
+  git remote add origin http://gitlab-real.unde.life/unde/{SERVER_NAME}.git
+  ```
+- Если `origin` есть, но указывает не на `gitlab-real.unde.life` — предложи:
+  ```bash
+  git remote set-url origin http://gitlab-real.unde.life/unde/{SERVER_NAME}.git
+  ```
+
+### 0.2) Аутентификация
+
+Настрой git с токеном напрямую:
+
+```bash
+git remote set-url origin "http://root:glpat-DubSAfGWeEkHd4-D-suZtm86MQp1OjEH.01.0w1eeq22u@gitlab-real.unde.life/unde/{SERVER_NAME}.git"
+```
+
+Если push не проходит — покажи точную ошибку и предложи варианты.
+
+### 0.3) Убедись, что проект на GitLab
+
+```bash
+# Создай проект через API если его ещё нет
+curl -s --header "PRIVATE-TOKEN: glpat-DubSAfGWeEkHd4-D-suZtm86MQp1OjEH.01.0w1eeq22u" \
+  "http://gitlab-real.unde.life/api/v4/projects?search={SERVER_NAME}" | head -20
+
+# Если проекта нет — создай:
+curl -s --request POST --header "PRIVATE-TOKEN: glpat-DubSAfGWeEkHd4-D-suZtm86MQp1OjEH.01.0w1eeq22u" \
+  --data "name={SERVER_NAME}&namespace_id=<UNDE_GROUP_ID>&visibility=private" \
+  "http://gitlab-real.unde.life/api/v4/projects"
+```
+
+---
+
+## ЧАСТЬ 1 — MEMORY BANK
+
+### 1.1) Структура
+
+Создай папку `memory-bank/` в корне. Создай 7 файлов (6 стандартных + 1 серверный).
+**Правило:** если файл уже существует — НЕ затирай, а аккуратно приведи к шаблону, сохранив содержимое.
+
+### 1.2) Шаблоны файлов
+
+#### A) `memory-bank/projectBrief.md`
+
+```markdown
+# Project Brief
+
+## One-liner
+<!-- TODO: Одна строка — что делает проект -->
+
+## Goals
+<!-- TODO: 3–5 главных целей -->
+
+## Non-goals
+<!-- TODO: Что явно НЕ входит в скоуп -->
+
+## Scope
+<!-- TODO: Границы проекта для текущей фазы -->
+
+## Success metrics
+<!-- TODO: Как понять, что цель достигнута -->
+
+## Constraints
+- Budget: <!-- TODO -->
+- Timeline: <!-- TODO -->
+- Team: <!-- TODO -->
+
+## Stakeholders
+<!-- TODO: Кто принимает решения, кто пользователь -->
+```
+
+#### B) `memory-bank/productContext.md`
+
+```markdown
+# Product Context
+
+## Problem statement
+<!-- TODO: Какую проблему решаем и для кого -->
+
+## Target users / personas
+<!-- TODO: 1–3 персоны с контекстом -->
+
+## User journeys (happy path)
+<!-- TODO: Основной сценарий использования по шагам -->
+
+## Key requirements (functional)
+<!-- TODO: Что система ДОЛЖНА делать -->
+
+## Key requirements (non-functional)
+<!-- TODO: Производительность, безопасность, масштабируемость -->
+
+## Out of scope
+<!-- TODO: Что точно не делаем сейчас -->
+```
+
+#### C) `memory-bank/systemPatterns.md`
+
+```markdown
+# System Patterns
+
+## Architecture overview
+<!-- TODO: Высокоуровневая архитектура (текст или ссылка на диаграмму) -->
+
+## Key components & responsibilities
+<!-- TODO: Список компонент → что делает каждая -->
+
+## Data flow
+<!-- TODO: Как данные проходят через систему -->
+
+## Important decisions (ADR-style)
+<!-- TODO: Ключевые архитектурные решения в формате:
+- **Decision:** что решили
+- **Context:** почему
+- **Consequences:** к чему приводит
+-->
+
+## Conventions & patterns
+<!-- TODO: Код-стайл, naming, структура папок, паттерны -->
+
+## Integration points
+<!-- TODO: Внешние API, сервисы, зависимости -->
+```
+
+#### D) `memory-bank/techContext.md`
+
+```markdown
+# Tech Context
+
+## Tech stack
+<!-- TODO: Языки, фреймворки, БД, инфра -->
+
+## Repo structure (high level)
+<!-- TODO: Дерево папок с пояснениями -->
+
+## Dev environment setup
+<!-- TODO: Как поднять проект с нуля -->
+
+## Build & run commands
+<!-- TODO: Основные команды для разработки -->
+```bash
+# Примеры:
+# docker compose up -d
+# npm run dev
+# make build
+```
+
+## Test strategy & commands
+<!-- TODO: Как запускать тесты -->
+
+## Deployment
+<!-- TODO: Как деплоится, куда, какие этапы -->
+
+## External services & credentials
+<!-- TODO: Список внешних сервисов и где лежат ключи -->
+<!-- На приватном GitLab допустимо хранить .env файлы -->
+
+## Server infrastructure
+<!-- TODO: Серверы, IP, роли, доступы -->
+```
+
+#### E) `memory-bank/activeContext.md`
+
+```markdown
+# Active Context
+<!-- Этот файл обновляется КАЖДУЮ сессию -->
+
+## Current focus
+<!-- Над чем работаем прямо сейчас -->
+
+## Current plan (next steps)
+<!-- 3–10 конкретных шагов -->
+1. ...
+2. ...
+3. ...
+
+## Open questions
+<!-- Что нужно выяснить/решить -->
+
+## Risks & blockers
+<!-- Что может помешать -->
+
+## Session notes
+<!-- Заметки из текущей/последней сессии -->
+- **Date:** YYYY-MM-DD
+- **What was done:**
+- **Decisions made:**
+- **Next time:**
+```
+
+#### F) `memory-bank/progress.md`
+
+```markdown
+# Progress
+
+## Done
+<!-- Завершённые задачи (новые сверху) -->
+- [ ] ...
+
+## In progress
+<!-- Текущие задачи -->
+- [ ] ...
+
+## Next
+<!-- Запланированные задачи -->
+- [ ] ...
+
+## Known issues & tech debt
+<!-- Известные проблемы -->
+
+## Changelog
+<!-- Краткий лог изменений -->
+| Date | Change | Details |
+|------|--------|---------|
+| YYYY-MM-DD | ... | ... |
+```
+
+#### G) `memory-bank/{SERVER_NAME}.md` — Server Identity File
+
+> **Это уникальный файл для каждого сервера.** Имя файла = значение `SERVER_NAME`.
+> Содержит ВСЁ необходимое для понимания, что это за сервер и как на нём работает проект.
+> **Обновляется** при любом изменении инфраструктуры, сети, контейнеров, конфигурации.
+
+```markdown
+# Server: {SERVER_NAME}
+<!-- Этот файл — ПОЛНАЯ карта сервера. Не поверхностный список, а глубокая документация.
+     Для каждого компонента: ЧТО это, ЗАЧЕМ установлено, КАК настроено, ГДЕ конфиги.
+     Обновляй при ЛЮБЫХ изменениях. -->
+
+---
+
+## 1. Identity & Role
+
+- **Name:** {SERVER_NAME}
+- **Role:** <!-- TODO: Какую функцию выполняет этот сервер в общей инфраструктуре? Например: "Основной app-сервер — обслуживает API, проксирует трафик, собирает метрики" -->
+- **Почему отдельный сервер:** <!-- TODO: Почему эта роль не совмещена с другим сервером? Например: "Изоляция БД от app для независимого масштабирования" -->
+- **Связь с другими серверами:** <!-- TODO: С какими серверами взаимодействует и как? Например: "Ходит в db-server (10.1.1.2:6432) за данными, получает задачи из push-server (10.1.0.4:6379)" -->
+
+## 2. Hardware & Provider
+
+- **Provider:** <!-- TODO: Hetzner / AWS / etc. -->
+- **Plan/Model:** <!-- TODO: AX41-NVMe / CPX21 / etc. -->
+- **Location / DC:** <!-- TODO: Helsinki DC / Ashburn / etc. -->
+- **CPU:** <!-- TODO: модель, ядра, потоки. Например: "AMD Ryzen 5 3600, 6 cores / 12 threads" -->
+- **RAM:** <!-- TODO: объём, тип. Например: "64GB DDR4 ECC" -->
+- **Storage:** <!-- TODO: тип, объём, partitions. Например: "2× 512GB NVMe SSD (RAID1), mounted as / " -->
+- **Network:** <!-- TODO: bandwidth, скорость. Например: "1 Gbit/s unmetered" -->
+- **Стоимость:** <!-- TODO: сколько платим в месяц -->
+
+## 3. Network Configuration
+
+### 3.1 IP-адреса
+- **Public IP:** <!-- TODO -->
+- **Private IP:** <!-- TODO: если есть internal network (Hetzner vSwitch, VPC, etc.) -->
+- **IPv6:** <!-- TODO: если есть -->
+
+### 3.2 DNS
+<!-- TODO: Все домены/поддомены, привязанные к этому серверу -->
+| Domain | Тип записи | Куда указывает | Для чего |
+|---|---|---|---|
+| <!-- TODO --> | A / CNAME | <!-- TODO --> | <!-- TODO --> |
+
+### 3.3 Firewall
+<!-- TODO: Полные правила — что открыто, что закрыто, почему -->
+| Port | Protocol | Source | Назначение | Почему открыт |
+|---|---|---|---|---|
+| 22 | TCP | <!-- TODO: откуда --> | SSH | <!-- TODO --> |
+| 80 | TCP | 0.0.0.0/0 | HTTP → redirect HTTPS | <!-- TODO --> |
+| 443 | TCP | 0.0.0.0/0 | HTTPS | <!-- TODO --> |
+| <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> |
+
+<!-- TODO: Используется ли ufw / iptables / Hetzner firewall? Где конфиг? -->
+
+### 3.4 SSH
+- **Port:** <!-- TODO: стандартный 22 или кастомный? -->
+- **User:** <!-- TODO: root / deploy / etc. -->
+- **Auth:** <!-- TODO: ключи (какие) / пароль -->
+- **Конфиг:** <!-- TODO: путь к sshd_config, что изменено от дефолта -->
+- **Ключи:** <!-- TODO: где лежат authorized_keys, чьи ключи добавлены -->
+
+## 4. OS & System Configuration
+
+### 4.1 Операционная система
+- **OS:** <!-- TODO: Ubuntu 24.04 LTS / Debian 12 / etc. -->
+- **Kernel:** <!-- TODO: версия -->
+- **Timezone:** <!-- TODO -->
+- **Locale:** <!-- TODO -->
+
+### 4.2 Системные настройки (sysctl, limits)
+<!-- TODO: Изменённые параметры ядра и почему -->
+<!-- Например: vm.swappiness=10, net.core.somaxconn=65535 -->
+| Параметр | Значение | Зачем | Где настроено |
+|---|---|---|---|
+| <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | /etc/sysctl.d/... |
+
+### 4.3 Установленные системные пакеты
+<!-- TODO: Всё что установлено поверх базовой ОС — и ЗАЧЕМ -->
+| Пакет | Версия | Зачем установлен | Как используется |
+|---|---|---|---|
+| docker-ce | <!-- TODO --> | Контейнеризация сервисов | Все сервисы крутятся в Docker |
+| docker-compose-plugin | <!-- TODO --> | Оркестрация контейнеров | `docker compose up -d` |
+| <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> |
+
+### 4.4 Пользователи и права
+<!-- TODO: Какие пользователи созданы, их роли, группы -->
+| User | Роль | Группы | Зачем создан |
+|---|---|---|---|
+| root | Администратор | — | Системный |
+| <!-- TODO --> | <!-- TODO --> | docker, ... | <!-- TODO --> |
+
+### 4.5 Cron jobs & systemd timers
+<!-- TODO: Все запланированные задачи — что, когда, зачем -->
+| Schedule | Команда | Назначение | Конфиг |
+|---|---|---|---|
+| <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | /etc/cron.d/... |
+
+## 5. Docker & Containers — ДЕТАЛЬНО
+
+### 5.1 Docker конфигурация
+- **Docker version:** <!-- TODO -->
+- **Storage driver:** <!-- TODO: overlay2 / etc. -->
+- **Data root:** <!-- TODO: /var/lib/docker или кастомный -->
+- **Logging driver:** <!-- TODO: json-file / journald / etc. -->
+- **Конфиг daemon:** <!-- TODO: /etc/docker/daemon.json — полное содержимое или ключевые параметры -->
+- **Docker networks:** <!-- TODO: какие сети созданы, тип (bridge/overlay), subnet -->
+
+### 5.2 Docker Compose files
+<!-- TODO: Какие compose файлы, где лежат, что делают -->
+| Файл | Путь | Что описывает | Как запускать |
+|---|---|---|---|
+| docker-compose.yml | <!-- TODO --> | <!-- TODO --> | `docker compose up -d` |
+
+### 5.3 Каждый контейнер / сервис — ПОДРОБНО
+<!-- TODO: Для КАЖДОГО контейнера — отдельный подраздел ниже.
+     Копируй этот блок для каждого нового контейнера. -->
+
+#### 5.3.x — {container_name}
+- **Image:** <!-- TODO: образ и тег, или build context -->
+- **Назначение:** <!-- TODO: Что делает этот контейнер? Какую задачу решает? -->
+- **Почему нужен:** <!-- TODO: Зачем он здесь? Что сломается без него? -->
+- **Ports:** <!-- TODO: маппинг host:container -->
+- **Volumes:** <!-- TODO: какие данные маунтятся, куда, зачем -->
+- **Environment variables:** <!-- TODO: ключевые переменные и что они настраивают -->
+- **Зависимости:** <!-- TODO: от каких других контейнеров/сервисов зависит (depends_on, network links) -->
+- **Конфигурация:** <!-- TODO: где лежит конфиг, ключевые параметры, что изменено от дефолта -->
+- **Ресурсы:** <!-- TODO: limits/reservations CPU/RAM если заданы -->
+- **Healthcheck:** <!-- TODO: как проверяется что контейнер жив -->
+- **Логи:** <!-- TODO: как смотреть логи, куда пишутся -->
+- **Restart policy:** <!-- TODO: always / unless-stopped / on-failure -->
+- **Известные проблемы:** <!-- TODO: баги, quirks, workarounds -->
+
+<!-- Повтори блок 5.3.x для каждого контейнера -->
+
+## 6. Volumes & Persistent Data
+
+### 6.1 Docker volumes
+| Volume name | Mount в контейнере | Что хранит | Размер | Бэкапится? | Как бэкапить |
+|---|---|---|---|---|---|
+| <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> |
+
+### 6.2 Host-mounted директории
+| Host path | Mount в контейнере | Что хранит | Зачем на хосте а не в volume |
+|---|---|---|---|
+| <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> |
+
+### 6.3 Бэкапы данных
+<!-- TODO: Стратегия бэкапов для этого сервера -->
+- **Что бэкапится:** <!-- TODO -->
+- **Куда:** <!-- TODO -->
+- **Расписание:** <!-- TODO -->
+- **Ретеншн:** <!-- TODO: сколько хранить -->
+- **Как восстановить:** <!-- TODO -->
+
+## 7. Environment Files & Secrets
+
+<!-- TODO: Для каждого .env файла — ЧТО в нём и ЗАЧЕМ -->
+
+### 7.1 — {path/.env}
+<!-- TODO: Полное описание каждой переменной -->
+| Variable | Значение | Зачем | Какой сервис использует |
+|---|---|---|---|
+| <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> |
+
+<!-- Повтори блок 7.x для каждого .env файла -->
+
+## 8. Reverse Proxy & Routing
+
+### 8.1 Reverse proxy
+- **Софт:** <!-- TODO: nginx / traefik / caddy / etc. -->
+- **Конфиг:** <!-- TODO: путь к конфигу -->
+- **Как работает:** <!-- TODO: описание логики проксирования -->
+
+### 8.2 SSL/TLS
+- **Провайдер:** <!-- TODO: Let's Encrypt / Cloudflare / self-signed -->
+- **Автообновление:** <!-- TODO: certbot / traefik auto / etc. -->
+- **Сертификаты:** <!-- TODO: где лежат -->
+
+### 8.3 Маршруты
+<!-- TODO: Полная таблица — какой URL куда проксируется и почему -->
+| Входящий URL | → Куда проксируется | Метод | Auth | Зачем этот роут |
+|---|---|---|---|---|
+| <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> |
+
+## 9. Database(s)
+
+<!-- TODO: Для каждой БД на этом сервере — отдельный блок -->
+
+### 9.x — {db_name}
+- **Engine:** <!-- TODO: PostgreSQL 17 / Redis 7 / etc. -->
+- **Назначение:** <!-- TODO: Для чего эта БД? Какие данные хранит? -->
+- **Port:** <!-- TODO: внутренний и внешний -->
+- **Data directory:** <!-- TODO -->
+- **Конфигурация:** <!-- TODO: ключевые параметры, что изменено от дефолта, где конфиг -->
+- **Connection pooling:** <!-- TODO: PgBouncer и его настройки если есть -->
+- **Пользователи и роли:** <!-- TODO: какие юзеры созданы, какие права -->
+- **Основные таблицы/schemas:** <!-- TODO: краткое описание структуры -->
+- **Extensions:** <!-- TODO: pgvector, pg_stat_statements, etc. — зачем каждый -->
+- **Бэкап:** <!-- TODO: стратегия, расписание, куда, retention -->
+- **Восстановление:** <!-- TODO: как восстановить из бэкапа -->
+- **Мониторинг:** <!-- TODO: exporters, алерты -->
+
+## 10. Monitoring & Observability
+
+### 10.1 Metrics
+- **Система:** <!-- TODO: Prometheus / etc. -->
+- **Конфиг:** <!-- TODO: где, что собирает -->
+- **Exporters:** <!-- TODO: какие exporters, на каких портах, что мониторят -->
+| Exporter | Port | Что собирает | Конфиг |
+|---|---|---|---|
+| node_exporter | <!-- TODO --> | CPU/RAM/disk/network | <!-- TODO --> |
+| <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> |
+
+### 10.2 Dashboards
+- **Grafana:** <!-- TODO: URL, как зайти, какие дашборды настроены -->
+
+### 10.3 Alerts
+<!-- TODO: Какие алерты настроены, куда приходят, пороги -->
+| Alert | Условие | Куда уходит | Критичность |
+|---|---|---|---|
+| <!-- TODO --> | <!-- TODO --> | <!-- TODO --> | <!-- TODO --> |
+
+### 10.4 Логи
+- **Где:** <!-- TODO: journald / файлы / docker logs -->
+- **Ротация:** <!-- TODO: logrotate, настройки -->
+- **Как смотреть:** <!-- TODO: конкретные команды -->
+```bash
+# TODO: Примеры команд для просмотра логов
+# docker logs -f container_name
+# journalctl -u service_name -f
+```
+
+## 11. Deploy Procedure
+
+### 11.1 Обычный деплой (обновление)
+<!-- TODO: Пошаговая инструкция — как задеплоить новую версию -->
+```bash
+# TODO: точные команды
+```
+
+### 11.2 Деплой конкретного сервиса
+<!-- TODO: Как обновить один контейнер без остановки остальных -->
+```bash
+# TODO: точные команды
+```
+
+### 11.3 Rollback
+<!-- TODO: Как откатиться если что-то сломалось -->
+```bash
+# TODO: точные команды
+```
+
+## 12. Recovery — Rebuild from Scratch
+
+<!-- TODO: ПОЛНАЯ пошаговая инструкция: заказал чистый сервер → клонировал репо → всё работает.
+     Ничего не должно быть "в голове" — всё записано здесь. -->
+
+### 12.1 Подготовка сервера
+```bash
+# TODO: первичная настройка ОС, пакеты, пользователи, SSH
+```
+
+### 12.2 Установка Docker
+```bash
+# TODO: точные команды
+```
+
+### 12.3 Клонирование и запуск
+```bash
+# TODO: git clone, настройка .env, docker compose up
+```
+
+### 12.4 Восстановление данных
+```bash
+# TODO: восстановление БД, volumes, бэкапов
+```
+
+### 12.5 Проверка
+<!-- TODO: Чеклист — как убедиться что всё заработало -->
+- [ ] <!-- TODO -->
+
+## 13. Notes, Quirks & Known Issues
+
+<!-- TODO: Всё что не вошло в другие секции.
+     Хаки, workarounds, особенности поведения, исторические решения и почему они приняты -->
+
+## 14. Changelog
+
+| Date | Change | Details |
+|---|---|---|
+| YYYY-MM-DD | Server created | Initial setup |
+```
+
+---
+
+## ЧАСТЬ 2 — ПРАВИЛА (dual: Claude Code + Cursor)
+
+### 2.1) Для Claude Code: `CLAUDE.md` (корень проекта)
+
+> Claude Code автоматически читает `CLAUDE.md` при старте сессии.
+
+```markdown
+# CLAUDE.md — Project Instructions for Claude Code
+
+## Memory Bank (обязательно)
+**При каждом старте сессии** прочитай файлы в `memory-bank/` в этом порядке:
+1. `projectBrief.md` — что за проект
+2. `productContext.md` — продуктовый контекст
+3. `systemPatterns.md` — архитектура и паттерны
+4. `techContext.md` — стек и инфра
+5. `{SERVER_NAME}.md` — карта этого конкретного сервера (IP, контейнеры, роуты, железо)
+6. `activeContext.md` — текущий фокус
+7. `progress.md` — статус задач
+
+### Правила обновления Memory Bank
+- **Перед работой:** обнови `activeContext.md` — запиши план (3–10 шагов)
+- **После работы:** обнови `progress.md` — что сделано, что дальше
+- **При изменении архитектуры/стека:** обнови `systemPatterns.md` / `techContext.md`
+- **При изменении инфраструктуры сервера** (контейнеры, порты, volumes, сеть, конфиги): обнови `{SERVER_NAME}.md`
+- Если файла нет — создай по шаблону из `memory-bank/`
+
+## Git Checkpoints (обязательно)
+**GitLab:** http://gitlab-real.unde.life (приватный сервер, секреты допустимы)
+**Remote:** `origin` должен указывать на `http://gitlab-real.unde.life/unde/{SERVER_NAME}.git`
+
+### Перед meaningful изменением:
+```bash
+git tag backup/$(date +%Y-%m-%d_%H%M)_pre
+git push origin backup/$(date +%Y-%m-%d_%H%M)_pre
+```
+
+### После meaningful работы:
+```bash
+git add -A
+git commit -m "backup: checkpoint $(date +%Y-%m-%d_%H:%M) - <краткое описание>"
+git tag backup/$(date +%Y-%m-%d_%H%M)_post
+git push origin HEAD
+git push origin --tags
+```
+
+### При ошибках:
+- **No identity:** `git config user.name "Claude"` + `git config user.email "claude@unde.life"`
+- **Auth fail:** проверь что remote URL содержит токен: `http://root:glpat-...@gitlab-real.unde.life/unde/...`
+- **Push fail:** fallback — `git stash push -u -m "backup $(date +%Y-%m-%d_%H%M) <summary>"`
+
+## Общие правила
+- Секреты можно коммитить (приватный GitLab, нет внешнего доступа)
+- .env файлы включены в репо (для воспроизводимости на чистом сервере)
+- Docker compose файлы должны содержать всё для полного развёртывания
+- Каждый сервер/контейнер = 1 задача
+- При создании нового сервиса — обнови `techContext.md`, `systemPatterns.md` И `{SERVER_NAME}.md`
+- `{SERVER_NAME}.md` — главный источник правды о состоянии этого сервера
+```
+
+### 2.2) Для Cursor: `.cursor/rules/`
+
+Создай папку `.cursor/rules/` и два файла:
+
+#### `.cursor/rules/memory-bank.mdc`
+
+```
+---
+description: "ALWAYS: Read and maintain memory-bank before any work."
+globs: "**/*"
+alwaysApply: true
+---
+
+# Memory Bank
+
+## При старте каждой задачи
+Прочитай ВСЕ файлы в `memory-bank/` по порядку:
+1. projectBrief.md → productContext.md → systemPatterns.md
+2. techContext.md → {SERVER_NAME}.md → activeContext.md → progress.md
+
+Если файл отсутствует — создай по шаблону.
+
+## Обновление
+- **До работы:** обнови `activeContext.md` (план 3–10 шагов)
+- **После работы:** обнови `progress.md` (что сделано, что дальше)
+- **При изменении архитектуры/стека:** обнови `systemPatterns.md` / `techContext.md`
+- **При изменении инфры сервера:** обнови `{SERVER_NAME}.md` (контейнеры, порты, сеть, volumes)
+- Стиль: кратко, bullet points, без воды
+```
+
+#### `.cursor/rules/git-backups.mdc`
+
+```
+---
+description: "ALWAYS: Git checkpoints with mandatory push to GitLab."
+globs: "**/*"
+alwaysApply: true
+---
+
+# Git Backups — Mandatory Push to GitLab
+
+## Preconditions
+- `origin` → `http://gitlab-real.unde.life/unde/{SERVER_NAME}.git`
+- Если remote неправильный — СТОП, сообщи пользователю
+
+## Перед meaningful изменением
+```bash
+git tag backup/$(date +%Y-%m-%d_%H%M)_pre
+git push origin backup/$(date +%Y-%m-%d_%H%M)_pre
+```
+
+## После meaningful работы
+```bash
+git add -A
+git commit -m "backup: checkpoint YYYY-MM-DD HH:MM - <summary>"
+git tag backup/$(date +%Y-%m-%d_%H%M)_post
+git push origin HEAD
+git push origin --tags
+```
+
+## Ошибки
+- **No identity:** → `git config user.name/email`
+- **Auth fail:** → проверь токен в remote URL
+- **Push fail:** → fallback stash
+
+## Политика секретов
+- Приватный GitLab — секреты в репо допустимы
+- .env файлы коммитятся для воспроизводимости
+```
+
+---
+
+## ЧАСТЬ 3 — AGENTS.md (универсальный якорь)
+
+> Этот файл читается и Claude Code, и Cursor, и другими AI-агентами.
+
+Создай/дополни `AGENTS.md` в корне:
+
+```markdown
+# AGENTS.md — Universal Agent Instructions
+
+> Этот файл — точка входа для любого AI-агента (Claude Code, Cursor, и др.)
+
+## 1. Memory Bank (обязательно)
+- **Всегда** начинай с чтения `memory-bank/*` (7 файлов по порядку)
+- Включая `{SERVER_NAME}.md` — карта этого сервера (IP, контейнеры, роуты, железо)
+- При изменении инфраструктуры → обнови `{SERVER_NAME}.md`
+- Подробные правила: см. `CLAUDE.md` или `.cursor/rules/memory-bank.mdc`
+
+## 2. Git Checkpoints (обязательно)
+- **GitLab:** http://gitlab-real.unde.life (приватный сервер)
+- **Remote:** origin → `http://gitlab-real.unde.life/unde/{SERVER_NAME}.git`
+- До изменений → tag `backup/*_pre` + push
+- После изменений → commit + tag `backup/*_post` + push всего
+- Подробные правила: см. `CLAUDE.md` или `.cursor/rules/git-backups.mdc`
+
+## 3. Политика секретов
+- **Секреты допустимы в репо** (приватный GitLab, без внешнего доступа)
+- .env файлы коммитятся для воспроизводимости деплоя
+- Docker compose содержит всё для развёртывания на чистом сервере
+
+## 4. Принципы
+- 1 сервер/контейнер = 1 задача
+- При изменении инфры → обнови `{SERVER_NAME}.md` + memory-bank
+- `{SERVER_NAME}.md` — единственный источник правды о состоянии сервера
+- Не начинай работу без чтения memory-bank
+- Каждый meaningful коммит → push в GitLab
+```
+
+---
+
+## ЧАСТЬ 4 — .gitignore НАСТРОЙКА
+
+Убедись, что `.gitignore` **НЕ** исключает:
+- `.env` файлы (нужны для воспроизводимости)
+- `memory-bank/` (это память проекта)
+- `.cursor/rules/` (правила для Cursor)
+- `CLAUDE.md`, `AGENTS.md`
+- `docker-compose*.yml`
+
+Пример дополнения `.gitignore`:
+```gitignore
+# НЕ игнорируем (явно разрешаем для деплоя):
+!.env
+!.env.*
+!memory-bank/
+!.cursor/rules/
+!CLAUDE.md
+!AGENTS.md
+```
+
+---
+
+## ЧАСТЬ 5 — BASELINE COMMIT + PUSH
+
+```bash
+# Добавляем всё созданное
+git add memory-bank/ .cursor/rules/ CLAUDE.md AGENTS.md .gitignore
+
+# Baseline коммит
+git commit -m "backup: baseline — memory bank, rules (Claude Code + Cursor), git backups"
+
+# Push в GitLab
+git push -u origin HEAD
+git push origin --tags
+```
+
+Если `push` не проходит — покажи ошибку и примени правила из части 0.2.
+
+---
+
+## ЧАСТЬ 6 — ЗАВЕРШЕНИЕ
+
+По окончании выведи:
+
+1. **Дерево** созданных/изменённых файлов
+2. **Список TODO** — где остались незаполненные секции
+
+**Жду промпт от тебя.**
+
+---
+
+## СПРАВКА: Как это работает
+
+```
+┌─────────────────────────────────────────────────┐
+│              Repo Root                           │
+├─────────────────────────────────────────────────┤
+│ CLAUDE.md          ← Claude Code читает         │
+│ AGENTS.md          ← Любой агент читает         │
+│ .gitignore         ← Секреты разрешены          │
+│                                                 │
+│ memory-bank/                                    │
+│   ├── projectBrief.md                           │
+│   ├── productContext.md                         │
+│   ├── systemPatterns.md                         │
+│   ├── techContext.md                            │
+│   ├── {SERVER_NAME}.md   ← карта сервера ★      │
+│   ├── activeContext.md   ← обновляется          │
+│   └── progress.md        ← обновляется          │
+│                                                 │
+│ .cursor/rules/                                  │
+│   ├── memory-bank.mdc   ← Cursor читает        │
+│   └── git-backups.mdc   ← Cursor читает        │
+└─────────────────────────────────────────────────┘
+
+{SERVER_NAME} — подставляется реальное значение (см. начало промпта).
+
+Flow:
+1. Агент стартует → читает CLAUDE.md / AGENTS.md / .cursor/rules/
+2. Читает memory-bank/* → понимает контекст + знает этот сервер
+3. Обновляет activeContext.md → план работы
+4. Работает...
+5. Если менялась инфра → обновляет {SERVER_NAME}.md
+6. Обновляет progress.md → фиксирует результат
+7. git commit + push → бэкап в GitLab
+```

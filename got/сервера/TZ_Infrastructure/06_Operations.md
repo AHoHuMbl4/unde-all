@@ -94,6 +94,10 @@ scrape_configs:
     static_configs:
       - targets: ['10.1.0.12:9100']
 
+  - job_name: 'ximilar-gw-app'
+    static_configs:
+      - targets: ['10.1.0.12:8001']
+
   - job_name: 'node-llm-reranker'
     static_configs:
       - targets: ['10.1.0.13:9100']
@@ -272,48 +276,42 @@ docker compose exec photo-downloader python -c "from app.tasks import download_p
 ### День 3c: Ximilar Sync Server
 
 ```bash
-# Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.11
-
-apt update && apt install -y docker.io docker-compose
-git clone http://gitlab-real.unde.life/unde/ximilar-sync.git /opt/unde/ximilar-sync
-cd /opt/unde/ximilar-sync
-cp .env.example .env  # Заполнить: Staging DB, Ximilar credentials
-docker-compose up -d
+# ✅ Развёрнут (CX23, 10.1.0.11, 89.167.93.187)
+# Git: http://gitlab-real.unde.life/unde/ximilar-sync.git
+# Docker: ximilar-sync (worker, concurrency=2, 1GB limit) + ximilar-beat (running)
+# node_exporter 1.8.2 (systemd, 0.0.0.0:9100)
+# Ximilar credentials: xxx (TODO: заполнить)
 
 # Тест (после Photo Downloader скачал фото)
-docker-compose exec ximilar-sync python -c "from tasks import sync_to_ximilar; sync_to_ximilar(limit=10)"
+docker compose exec ximilar-sync celery -A app.celery_app call app.tasks.ximilar_sync
 ```
 
 ### День 4: Collage Server
 
 ```bash
-# Hetzner Console → Создать сервер CPX31 (Helsinki), Private: 10.1.0.16
-
-apt update && apt install -y docker.io docker-compose
-git clone http://gitlab-real.unde.life/unde/collage-server.git /opt/unde/collage
-cd /opt/unde/collage
-cp .env.example .env
-docker-compose up -d
+# ✅ Развёрнут (CX33, 10.1.0.16, 65.109.172.52)
+# Git: http://gitlab-real.unde.life/unde/collage.git
+# Docker: collage-worker + collage-beat (running)
+# node_exporter 1.8.2 (systemd)
+# JPEG q=95, subsampling=0 (4:4:4), без уменьшения разрешения
 
 # Тест
-docker-compose exec collage-worker python -c "from tasks import process_product; process_product(1)"
+docker compose exec collage-worker celery -A app.celery_app call app.tasks.process_new
 ```
 
 ### День 5: Recognition Orchestrator + Ximilar Gateway + LLM Reranker
 
 ```bash
 # 1. Ximilar Gateway
-# Hetzner Console → Создать сервер CPX21 (Helsinki), Private: 10.1.0.12
-
-apt update && apt install -y docker.io docker-compose
-git clone http://gitlab-real.unde.life/unde/ximilar-gw.git /opt/unde/ximilar-gw
-cd /opt/unde/ximilar-gw
-cp .env.example .env  # Заполнить: XIMILAR_API_TOKEN, XIMILAR_COLLECTION_ID
-docker-compose up -d
+# ✅ Развёрнут (CX23, 10.1.0.12, 89.167.99.162)
+# Git: http://gitlab-real.unde.life/unde/ximilar-gw.git
+# Docker: ximilar-gw (FastAPI, 4 uvicorn workers, 2GB limit, bind 10.1.0.12:8001)
+# node_exporter 1.8.2 (systemd, 0.0.0.0:9100)
+# Prometheus app metrics: GET http://10.1.0.12:8001/metrics
+# Ximilar credentials: xxx (TODO: заполнить)
 
 # Тест
-curl -X POST http://10.1.0.12:8001/detect -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/test-photo.jpg"}'
+curl -s http://10.1.0.12:8001/health | python3 -m json.tool
 
 # 2. LLM Reranker
 # Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.13

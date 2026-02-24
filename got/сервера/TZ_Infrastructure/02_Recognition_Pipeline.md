@@ -401,7 +401,7 @@ Recognition Pipeline зависит от актуальности каталог
 
 ---
 
-## 9. XIMILAR GATEWAY (новый)
+## 9. XIMILAR GATEWAY (✅ Работает)
 
 ### Информация
 
@@ -409,11 +409,14 @@ Recognition Pipeline зависит от актуальности каталог
 |----------|----------|
 | **Hostname** | ximilar-gw |
 | **Private IP** | 10.1.0.12 |
-| **Тип** | Hetzner CPX21 |
-| **vCPU** | 3 |
+| **Public IP** | 89.167.99.162 |
+| **Тип** | Hetzner CX23 |
+| **vCPU** | 2 |
 | **RAM** | 4 GB |
-| **Disk** | 80 GB NVMe |
+| **Disk** | 40 GB NVMe |
 | **OS** | Ubuntu 24.04 LTS |
+| **Git** | http://gitlab-real.unde.life/unde/ximilar-gw.git |
+| **Статус** | ✅ Развёрнут, контейнер running |
 
 ### Назначение
 
@@ -429,9 +432,9 @@ Recognition Pipeline зависит от актуальности каталог
 - **Один API-ключ:** безопасность — ключ Ximilar только на этом сервере
 - **Мониторинг:** latency, ошибки, rate limits Ximilar отслеживаются отдельно
 
-### Почему CPX21
+### Почему CX23
 
-Detection + Search возвращают изображения (crop URL'ы). Сервер обрабатывает JSON и пересылает — I/O bound, но с некоторым объёмом данных в памяти (10 кандидатов × 5-7 фото каждый).
+Лёгкий JSON-прокси: пересылает запросы в Ximilar API и возвращает ответы. I/O bound, минимум CPU/RAM. FastAPI + 4 uvicorn workers.
 
 ### HTTP API
 
@@ -464,6 +467,7 @@ services:
     build: .
     container_name: ximilar-gw
     restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 4
     env_file: .env
     ports:
       - "10.1.0.12:8001:8001"
@@ -471,14 +475,10 @@ services:
       resources:
         limits:
           memory: 2G
-
-  node-exporter:
-    image: prom/node-exporter:v1.7.0
-    container_name: node-exporter
-    restart: unless-stopped
-    ports:
-      - "10.1.0.12:9100:9100"
 ```
+
+> node_exporter v1.8.2 установлен как systemd сервис (0.0.0.0:9100), не в Docker.
+> Prometheus app metrics: `GET http://10.1.0.12:8001/metrics` (prometheus-fastapi-instrumentator).
 
 ### Environment Variables
 
@@ -486,8 +486,9 @@ services:
 # /opt/unde/ximilar-gw/.env
 
 # Ximilar
-XIMILAR_API_TOKEN=xxx
-XIMILAR_COLLECTION_ID=xxx
+XIMILAR_API_TOKEN=xxx                    # TODO: заполнить когда получим от Ximilar
+XIMILAR_COLLECTION_ID=xxx               # TODO: заполнить когда получим от Ximilar
+XIMILAR_API_URL=https://api.ximilar.com
 
 # Server
 HOST=0.0.0.0

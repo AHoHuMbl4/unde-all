@@ -145,11 +145,11 @@
 | # | Сервер | IP (private) | Тип | €/мес | Задача | Статус |
 |---|--------|-------------|-----|-------|--------|--------|
 | H7 | **apify** | 10.1.0.9 | CX23 | €12 | Сбор метаданных каталога (Apify.com, 6 брендов) | ✅ Развёрнут |
-| H8 | **collage** | 10.1.0.16 | CX33 | €25 | Склейка фото (горизонтальные коллажи для try-on) | ✅ Создан |
+| H8 | **collage** | 10.1.0.16 | CX33 | €25 | Склейка фото (горизонтальные коллажи для try-on) | ✅ Развёрнут |
 | H9 | **recognition** | 10.1.0.14 | CX23 | €6 | Recognition Orchestrator (координация 4-step pipeline) | ✅ Создан |
 | H10 | **photo-downloader** | 10.1.0.10 | CX23 | €12 | Скачивание фото брендов → Object Storage (Bright Data proxy) | ✅ Развёрнут |
-| H11 | **ximilar-sync** | 10.1.0.11 | CX23 | €6 | Синхронизация каталога → Ximilar Collection | ✅ Создан |
-| H12 | **ximilar-gw** | 10.1.0.12 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Создан |
+| H11 | **ximilar-sync** | 10.1.0.11 | CX23 | €6 | Синхронизация каталога → Ximilar Collection | ✅ Развёрнут |
+| H12 | **ximilar-gw** | 10.1.0.12 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Развёрнут |
 | H13 | **llm-reranker** | 10.1.0.13 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Создан |
 | H14 | **staging-db** | 10.1.0.8 | CPX22 | €12 | PostgreSQL staging (raw_products, raw_availability) | ✅ Создан |
 | H15 | **shard-replica-0** | 10.1.1.10 | Dedicated (Xeon E3-1275V6, 64 GB, 2×NVMe 512 GB) | ~€39 | Hot standby replica шарда 0 (Patroni + streaming replication) | ✅ Создан |
@@ -711,7 +711,7 @@ scrape_configs:
       - targets: ['10.1.0.14:9100']
   - job_name: 'helsinki-ximilar-gw'
     static_configs:
-      - targets: ['10.1.0.12:9100']
+      - targets: ['10.1.0.12:9100', '10.1.0.12:8001']
   - job_name: 'helsinki-llm-reranker'
     static_configs:
       - targets: ['10.1.0.13:9100']

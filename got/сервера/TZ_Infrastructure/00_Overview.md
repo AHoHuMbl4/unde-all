@@ -107,7 +107,7 @@
                      │
                      │
               ┌──────┴───── WireGuard (каждый сервер — отдельный туннель) ─────┐
-              │              ~120ms RTT, через helsinki-gw (10.1.0.40)          │
+              │              ~120ms RTT, через helsinki-gw (10.1.0.2)          │
               │                                                                │
               │  ┌── ЛОКАЛЬНЫЕ СЕРВЕРЫ (hot path, <5ms от юзеров) ──────────┐  │
               │  │                                                          │  │
@@ -164,7 +164,7 @@
 
 | # | Сервер | IP (private) | IP (public) | Тип | Статус |
 |---|--------|-------------|-------------|-----|--------|
-| H1 | unde-app | 10.1.0.2 | — | CX43 | 🗑 Удалён, будет пересоздан |
+| H1 | **helsinki-gw** | 10.1.0.2 | 46.62.233.30 | CX23 | ✅ Установлен (бывший unde-app, переназначен как router) |
 | H2 | scraper | 10.1.0.3 | 46.62.255.184 | CPX22 | ✅ Работает |
 | H3 | push | 10.1.0.4 | 77.42.30.44 | CPX32 | ✅ Работает |
 | H4 | model-generator | 10.1.0.5 | 89.167.20.60 | CPX22 | ✅ Работает |
@@ -176,7 +176,7 @@
 
 | Сервер | Старая роль | Новая роль |
 |--------|-------------|-----------|
-| **unde-app (H1)** | API gateway (единственная точка входа) | 🗑 **Удалён.** Будет пересоздан как Helsinki API — batch endpoints, webhooks, admin. Юзерский трафик → local-app |
+| **unde-app (H1)** | API gateway (единственная точка входа) | **helsinki-gw** — Debian 12 + MikroTik CHR. WireGuard endpoint, routing, firewall |
 | **push (H3)** | Redis + Celery broker | **Batch Redis + Celery broker** — для recognition queue, catalog pipeline, enrichment TTL recovery. Hot path Redis → local-redis |
 
 ### Hetzner Helsinki — новые серверы
@@ -184,11 +184,11 @@
 | # | Сервер | IP (private) | Тип | €/мес | Задача | Статус |
 |---|--------|-------------|-----|-------|--------|--------|
 | H7 | **apify** | 10.1.0.9 | CX23 | €12 | Сбор метаданных каталога (Apify.com) | ✅ Развёрнут |
-| H8 | **collage** | 10.1.0.16 | CX33 | €25 | Склейка фото | ✅ Создан |
+| H8 | **collage** | 10.1.0.16 | CX33 | €25 | Склейка фото SKU → коллаж (JPEG q=95) | ✅ Развёрнут |
 | H9 | **recognition** | 10.1.0.14 | CX23 | €6 | Recognition Orchestrator | ✅ Создан |
 | H10 | **photo-downloader** | 10.1.0.10 | CX23 | €12 | Скачивание фото → Object Storage (Bright Data proxy) | ✅ Развёрнут |
-| H11 | **ximilar-sync** | 10.1.0.11 | CX23 | €6 | Синхронизация каталога → Ximilar Collection | ✅ Создан |
-| H12 | **ximilar-gw** | 10.1.0.12 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Создан |
+| H11 | **ximilar-sync** | 10.1.0.11 | CX23 | €6 | Синхронизация каталога → Ximilar Collection | ✅ Развёрнут |
+| H12 | **ximilar-gw** | 10.1.0.12 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Развёрнут |
 | H13 | **llm-reranker** | 10.1.0.13 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Создан |
 | H14 | **staging-db** | 10.1.0.8 | CPX22 | €12 | PostgreSQL staging | ✅ Создан |
 | H15 | **shard-replica-0** | 10.1.1.10 | Dedicated (Xeon, 64 GB, NVMe) | ~€39 | Hot standby replica шарда 0 (Patroni) | ✅ Создан |
@@ -196,7 +196,7 @@
 | H17 | **etcd-3** | 10.1.0.15 | CX23 | €4 | etcd quorum node 3 (tiebreaker) | ✅ Создан |
 | H18 | **posthog** | 10.1.1.30 | Dedicated (Xeon, 64 GB, SATA) | ~€39 | PostHog self-hosted: product analytics | ✅ Создан |
 | H19 | **monitoring** | 10.1.0.7 | CX33 | €25 | Prometheus + Grafana + Alertmanager | ✅ Создан |
-| H20 | **helsinki-gw** | 10.1.0.40 | CPX22 (2 vCPU / 4 GB) | €12 | Firewall/Router: Debian 12 + MikroTik CHR. WireGuard endpoint | 🆕 Создать |
+| ~~H20~~ | ~~helsinki-gw~~ | — | — | — | Перенесён на H1 (бывший unde-app, CX23, 10.1.0.2 / 46.62.233.30) | ✅ Установлен |
 | — | **Object Storage** | hel1.your-objectstorage.com | S3-compatible | ~€10 | unde-images ✅, unde-user-media ✅, unde-shard-backups ✅ | ✅ Создан |
 
 ---
