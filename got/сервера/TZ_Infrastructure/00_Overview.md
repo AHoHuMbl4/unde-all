@@ -160,36 +160,31 @@
 | L8 | **local-shard-0** | **16 vCPU / 32 GB** | User Data Shard 0: PostgreSQL 17 + pgvector | 🆕 Создать |
 | L9 | **local-etcd-1** | 1 vCPU / 2 GB | etcd node для Patroni (локальный голос primary) | 🆕 Создать |
 
-### Hetzner Helsinki — существующие серверы
+### Hetzner Helsinki
 
-| # | Сервер | IP (private) | IP (public) | Тип | Статус |
-|---|--------|-------------|-------------|-----|--------|
-| H1 | **helsinki-gw** | 10.1.0.2 | 46.62.233.30 | CX23 | ✅ Установлен |
-| H2 | scraper | 10.1.0.3 | 46.62.255.184 | CPX22 | ✅ Работает |
-| H3 | push | 10.1.0.4 | 77.42.30.44 | CPX32 | ✅ Работает |
-| H4 | model-generator | 10.1.0.5 | 89.167.20.60 | CPX22 | ✅ Работает |
-| H5 | tryon-service | 10.1.0.6 | 89.167.31.65 | CPX22 | ✅ Работает |
-| H6 | Production DB | 10.1.1.2 | 135.181.209.26 | AX41 (dedicated) | ✅ Работает |
-| — | GitLab | — | gitlab-real.unde.life | — | ✅ Работает |
-
-### Hetzner Helsinki — новые серверы
-
-| # | Сервер | IP (private) | Тип | €/мес | Задача | Статус |
-|---|--------|-------------|-----|-------|--------|--------|
-| H7 | **apify** | 10.1.0.9 | CX23 | €12 | Сбор метаданных каталога (Apify.com) | ✅ Развёрнут |
-| H8 | **collage** | 10.1.0.16 | CX33 | €25 | Склейка фото SKU → коллаж (JPEG q=95) | ✅ Развёрнут |
-| H9 | **recognition** | 10.1.0.14 | CX23 | €6 | Recognition Orchestrator | ✅ Развёрнут |
-| H10 | **photo-downloader** | 10.1.0.10 | CX23 | €12 | Скачивание фото → Object Storage (Bright Data proxy) | ✅ Развёрнут |
-| H11 | **ximilar-sync** | 10.1.0.11 | CX23 | €6 | Синхронизация каталога → Ximilar Collection | ✅ Развёрнут |
-| H12 | **ximilar-gw** | 10.1.0.12 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Развёрнут |
-| H13 | **llm-reranker** | 10.1.0.13 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Развёрнут |
-| H14 | **staging-db** | 10.1.0.8 | CPX22 | €12 | PostgreSQL staging | ✅ Создан |
-| H15 | **shard-replica-0** | 10.1.1.10 | Dedicated (Xeon, 64 GB, NVMe) | ~€39 | Hot standby replica шарда 0 (Patroni) | ✅ Создан |
-| H16 | **etcd-2** | на shard-replica-0 | контейнер | €0 | etcd quorum node 2 | 🆕 Создать |
-| H17 | **etcd-3** | 10.1.0.15 | CX23 | €4 | etcd quorum node 3 (tiebreaker) | ✅ Создан |
-| H18 | **posthog** | 10.1.1.30 | Dedicated (Xeon, 64 GB, SATA) | ~€39 | PostHog self-hosted: product analytics | ✅ Создан |
-| H19 | **monitoring** | 10.1.0.7 | CX33 | €25 | Prometheus + Grafana + Alertmanager | ✅ Развёрнут |
-| — | **Object Storage** | hel1.your-objectstorage.com | S3-compatible | ~€10 | unde-images ✅, unde-user-media ✅, unde-shard-backups ✅ | ✅ Создан |
+| # | Сервер | IP (private) | IP (public) | Тип | Задача | Статус |
+|---|--------|-------------|-------------|-----|--------|--------|
+| H1 | **helsinki-gw** | 10.1.0.2 | 46.62.233.30 | CX23 | Debian + MikroTik CHR (роутер, WireGuard) | ✅ Развёрнут |
+| H2 | **scraper** | 10.1.0.3 | 46.62.255.184 | CPX22 | Mobile API (наличие) + Sync job | ✅ Работает |
+| H3 | **push** | 10.1.0.4 | 77.42.30.44 | CPX32 | Redis broker (Celery queues) | ✅ Работает |
+| H4 | **model-generator** | 10.1.0.5 | 89.167.20.60 | CPX22 | Генерация моделей | ✅ Работает |
+| H5 | **tryon-service** | 10.1.0.6 | 89.167.31.65 | CPX22 | Try-on (fal.ai) | ✅ Работает |
+| H6 | **Production DB** | 10.1.1.2 | 135.181.209.26 | AX41 (dedicated) | PostgreSQL 17 + PgBouncer | ✅ Работает |
+| H7 | **apify** | 10.1.0.9 | 89.167.110.186 | CX23 | Сбор метаданных каталога (Apify.com) | ✅ Развёрнут |
+| H8 | **collage** | 10.1.0.16 | 65.109.172.52 | CX33 | Склейка фото SKU → коллаж (JPEG q=95) | ✅ Развёрнут |
+| H9 | **recognition** | 10.1.0.14 | 89.167.90.152 | CPX11 | Recognition Orchestrator (Celery, 4-step pipeline) | ✅ Развёрнут |
+| H10 | **photo-downloader** | 10.1.0.10 | 89.167.99.242 | CX23 | Скачивание фото → Object Storage (Bright Data proxy) | ✅ Развёрнут |
+| H11 | **ximilar-sync** | 10.1.0.11 | 89.167.93.187 | CX23 | Синхронизация каталога → Ximilar Collection | ✅ Развёрнут |
+| H12 | **ximilar-gw** | 10.1.0.12 | 89.167.99.162 | CX23 | Ximilar Gateway (/detect, /tag, /search) | ✅ Развёрнут |
+| H13 | **llm-reranker** | 10.1.0.13 | 89.167.106.167 | CX23 | LLM Reranker (Gemini visual comparison) | ✅ Развёрнут |
+| H14 | **staging-db** | 10.1.0.8 | 89.167.91.76 | CPX22 | PostgreSQL staging + PgBouncer | ✅ Развёрнут |
+| H15 | **shard-replica-0** | 10.1.1.10 | — | Dedicated (Xeon, 64 GB, NVMe) | Hot standby replica шарда 0 (Patroni) | ✅ Создан |
+| H16 | **etcd-2** | на shard-replica-0 | — | контейнер | etcd quorum node 2 | 🆕 Создать |
+| H17 | **etcd-3** | 10.1.0.15 | — | CX23 | etcd quorum node 3 (tiebreaker) | ✅ Создан |
+| H18 | **posthog** | 10.1.1.30 | — | Dedicated (Xeon, 64 GB, SATA) | PostHog self-hosted: product analytics | ✅ Создан |
+| H19 | **monitoring** | 10.1.0.7 | 89.167.83.72 | CX33 | Prometheus + Grafana + Alertmanager | ✅ Развёрнут |
+| — | **Object Storage** | hel1.your-objectstorage.com | — | S3-compatible | unde-images, unde-user-media, unde-shard-backups | ✅ Создан |
+| — | **GitLab** | — | gitlab-real.unde.life | — | Git repos | ✅ Работает |
 
 ---
 

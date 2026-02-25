@@ -467,7 +467,7 @@ async def download_pending():
 - **Другая частота:** может работать чаще или реже, независимо от сбора каталога
 - **Изоляция:** проблемы с Ximilar не блокируют сбор данных и скачивание фото
 
-### Почему CPX11
+### Почему CX23
 
 Лёгкая задача: читает URL'ы из Staging DB, отправляет POST в Ximilar API. I/O bound, минимум CPU/RAM.
 
@@ -748,7 +748,7 @@ def process_sku(product_id: int):
 
 ---
 
-## 6. STAGING DB SERVER (новый)
+## 6. STAGING DB SERVER (✅ Работает)
 
 ### Информация
 
@@ -756,11 +756,14 @@ def process_sku(product_id: int):
 |----------|----------|
 | **Hostname** | staging-db |
 | **Private IP** | 10.1.0.8 |
+| **Public IP** | 89.167.91.76 |
 | **Тип** | Hetzner CPX22 |
-| **vCPU** | 3 |
-| **RAM** | 4 GB |
-| **Disk** | 80 GB NVMe |
+| **vCPU** | 4 |
+| **RAM** | 8 GB |
+| **Disk** | 80 GB SSD |
 | **OS** | Ubuntu 24.04 LTS |
+| **Git** | http://gitlab-real.unde.life/unde/Staging-DB.git |
+| **Статус** | ✅ Развёрнут, PG17 + PgBouncer running |
 
 ### Назначение
 
