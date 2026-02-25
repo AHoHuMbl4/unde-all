@@ -51,6 +51,19 @@ REDIS_URL=redis://:kyha6QEgtmjk3vuFflSdUDa1Xqu41zRl9ce9oq0+UPQ=@10.1.0.4:6379/6
 GEMINI_API_KEY=AIzaSyBQB2jKFgBDLeBIiqeHFVC_8q5INAvr9D0
 ```
 
+### Shard Replica 0 (10.1.1.10) — PostgreSQL unde_shard
+```
+# LUKS password (md1 → /pgdata):
+ejJyDBJpN92Q7BniB15pMC0IMjbvoEVTTDr6LZi1sao=
+
+# DB users:
+app_rw:       L4h9PdcAba99uTFH8ALDSu5Y7UDLghPK
+knowledge_rw: JoqXKwo+cPsIfTBxwF9hRGroNiLs+gRl
+persona_rw:   Px/GguJP6QJYlvbxQy7j0Rqu3ip2eYpG
+replicator:   tOoue+JVwLYe3CnlJh4WuwIg3SmnxMDE
+monitoring:   hiRU89R+C77qiHm4naTEaNUJNyN7S4b+
+```
+
 ## S3 Object Storage (hel1.your-objectstorage.com)
 
 ### unde-images (каталог)

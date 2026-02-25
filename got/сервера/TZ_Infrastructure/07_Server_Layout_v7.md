@@ -137,10 +137,10 @@
 | H12 | **ximilar-gw** | 10.1.0.12 | 89.167.99.162 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Развёрнут |
 | H13 | **llm-reranker** | 10.1.0.13 | 89.167.106.167 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Развёрнут |
 | H14 | **staging-db** | 10.1.0.8 | 89.167.91.76 | CPX22 | €12 | PostgreSQL staging + PgBouncer | ✅ Развёрнут |
-| H15 | **shard-replica-0** | 10.1.1.10 | — | Dedicated (Xeon E3-1275V6, 64 GB, 2×NVMe 512 GB) | ~€39 | Hot standby replica шарда 0 (Patroni + streaming replication) | ✅ Создан |
+| H15 | **shard-replica-0** | 10.1.1.10 | — | Dedicated (Xeon E3-1275V6, 64 GB, 2×NVMe 512 GB) | ~€39 | Hot standby replica шарда 0 (Patroni, LUKS, PG 17.8 + pgvector 0.8.1) | ✅ Развёрнут |
 | H16 | **etcd-2** | 10.1.0.17 | 65.109.162.92 | CX23 | €4 | etcd quorum node 2 | ✅ Развёрнут |
 | H17 | **etcd-3** | 10.1.0.15 | 89.167.98.219 | CX23 | €4 | etcd quorum node 3 (tiebreaker) | ✅ Развёрнут |
-| H18 | **posthog** | 10.1.1.30 | — | Dedicated (Xeon E3-1275V6, 64 GB, 2×SATA 480 GB) | ~€39 | PostHog self-hosted (ClickHouse + PG + Redis + Kafka) | ✅ Создан |
+| H18 | **posthog** | 10.1.1.30 | 95.216.39.182 | Dedicated (Xeon E3-1275V6, 64 GB, 2×SATA 480 GB) | ~€39 | PostHog self-hosted (ClickHouse + PG + Redis + Kafka) | ✅ Развёрнут |
 | H19 | **monitoring** | 10.1.0.7 | 89.167.83.72 | CX33 | €25 | Prometheus + Grafana + Alertmanager | ✅ Развёрнут |
 | — | **Object Storage** | hel1.your-objectstorage.com | — | S3-compatible | ~€10 | unde-images, unde-user-media, unde-shard-backups | ✅ Создан |
 | — | **GitLab** | — | gitlab-real.unde.life | — | — | Git repos | ✅ Работает |

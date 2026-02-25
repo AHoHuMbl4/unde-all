@@ -28,9 +28,15 @@
 | **Hostname** | shard-replica-0 |
 | **Private IP** | 10.1.1.10 |
 | **Тип** | Dedicated (Xeon E3-1275V6, 64 GB, 2×NVMe 512 GB) |
-| **vCPU** | 4 |
-| **RAM** | 16 GB |
-| **Стоимость** | €39/мес |
+| **vCPU** | 4 cores / 8 threads |
+| **RAM** | 64 GB |
+| **Стоимость** | ~€39/мес |
+| **OS** | Ubuntu 24.04.3 LTS, kernel 6.8.0-90 |
+| **Статус** | ✅ Развёрнут |
+| **Диски** | md0 (80G, OS) + md1 (397G, LUKS2 → /pgdata) |
+| **PostgreSQL** | 17.8 + pgvector 0.8.1, data_directory = /pgdata/main |
+| **DB** | unde_shard (9 таблиц + 64 партиции) |
+| **Шифрование** | LUKS2 (aes-xts-plain64, 512-bit) на md1 |
 
 ### RAM Architecture (Primary, 32 GB)
 
