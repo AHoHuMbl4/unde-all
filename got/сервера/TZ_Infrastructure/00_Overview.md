@@ -178,7 +178,7 @@
 |---|--------|-------------|-----|-------|--------|--------|
 | H7 | **apify** | 10.1.0.9 | CX23 | €12 | Сбор метаданных каталога (Apify.com) | ✅ Развёрнут |
 | H8 | **collage** | 10.1.0.16 | CX33 | €25 | Склейка фото SKU → коллаж (JPEG q=95) | ✅ Развёрнут |
-| H9 | **recognition** | 10.1.0.14 | CX23 | €6 | Recognition Orchestrator | ✅ Создан |
+| H9 | **recognition** | 10.1.0.14 | CX23 | €6 | Recognition Orchestrator | ✅ Развёрнут |
 | H10 | **photo-downloader** | 10.1.0.10 | CX23 | €12 | Скачивание фото → Object Storage (Bright Data proxy) | ✅ Развёрнут |
 | H11 | **ximilar-sync** | 10.1.0.11 | CX23 | €6 | Синхронизация каталога → Ximilar Collection | ✅ Развёрнут |
 | H12 | **ximilar-gw** | 10.1.0.12 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Развёрнут |
@@ -188,7 +188,7 @@
 | H16 | **etcd-2** | на shard-replica-0 | контейнер | €0 | etcd quorum node 2 | 🆕 Создать |
 | H17 | **etcd-3** | 10.1.0.15 | CX23 | €4 | etcd quorum node 3 (tiebreaker) | ✅ Создан |
 | H18 | **posthog** | 10.1.1.30 | Dedicated (Xeon, 64 GB, SATA) | ~€39 | PostHog self-hosted: product analytics | ✅ Создан |
-| H19 | **monitoring** | 10.1.0.7 | CX33 | €25 | Prometheus + Grafana + Alertmanager | ✅ Создан |
+| H19 | **monitoring** | 10.1.0.7 | CX33 | €25 | Prometheus + Grafana + Alertmanager | ✅ Развёрнут |
 | — | **Object Storage** | hel1.your-objectstorage.com | S3-compatible | ~€10 | unde-images ✅, unde-user-media ✅, unde-shard-backups ✅ | ✅ Создан |
 
 ---

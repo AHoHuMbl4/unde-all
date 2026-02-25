@@ -4,7 +4,7 @@
 
 ---
 
-## 8. RECOGNITION ORCHESTRATOR (новый)
+## 8. RECOGNITION ORCHESTRATOR (✅ Работает)
 
 > **Задача:** юзер фотографирует outfit на улице → UNDE определяет каждую вещь → находит похожие SKU в каталоге ТЦ → показывает с ценой и магазином
 >
@@ -18,11 +18,14 @@
 |----------|----------|
 | **Hostname** | recognition |
 | **Private IP** | 10.1.0.14 |
+| **Public IP** | 89.167.90.152 |
 | **Тип** | Hetzner CPX11 |
 | **vCPU** | 2 |
 | **RAM** | 2 GB |
 | **Disk** | 40 GB NVMe |
-| **OS** | Ubuntu 24.04 LTS |
+| **OS** | Ubuntu 24.04.3 LTS |
+| **Git** | http://gitlab-real.unde.life/unde/Recognition.git |
+| **Статус** | ✅ Развёрнут, контейнер running |
 
 ### Назначение
 
@@ -209,14 +212,9 @@ services:
       resources:
         limits:
           memory: 1G
-
-  node-exporter:
-    image: prom/node-exporter:v1.7.0
-    container_name: node-exporter
-    restart: unless-stopped
-    ports:
-      - "10.1.0.14:9100:9100"
 ```
+
+> node_exporter v1.8.2 установлен как systemd сервис (0.0.0.0:9100), не в Docker.
 
 **2 concurrent workers:** оркестратор только ждёт HTTP-ответов от Ximilar Gateway и LLM Reranker. Минимум CPU.
 
@@ -313,13 +311,12 @@ class LLMReranker:
 XIMILAR_GW_URL=http://10.1.0.12:8001
 LLM_RERANKER_URL=http://10.1.0.13:8002
 
-# Celery (Redis на Push Server)
-REDIS_PASSWORD=xxx
-CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@10.1.0.4:6379/6
-CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@10.1.0.4:6379/6
+# Celery (Redis на Push Server, db 6 для recognition)
+CELERY_BROKER_URL=redis://:kyha6QEgtmjk3vuFflSdUDa1Xqu41zRl9ce9oq0+UPQ=@10.1.0.4:6379/6
+CELERY_RESULT_BACKEND=redis://:kyha6QEgtmjk3vuFflSdUDa1Xqu41zRl9ce9oq0+UPQ=@10.1.0.4:6379/6
 
 # Production DB (SKU метаданные + логи)
-DATABASE_URL=postgresql://undeuser:xxx@10.1.1.2:6432/unde_main
+DATABASE_URL=postgresql://undeuser:X37nLbzPI2jeL@10.1.1.2:6432/unde_main
 
 # Thresholds
 CONFIDENCE_HIGH=0.85

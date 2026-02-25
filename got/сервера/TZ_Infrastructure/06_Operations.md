@@ -329,21 +329,14 @@ curl -s http://10.1.0.12:8001/health | python3 -m json.tool
 curl -s http://10.1.0.13:8002/health | python3 -m json.tool
 
 # 3. Recognition Orchestrator
-# Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.14
+# ✅ Развёрнут (CPX11, 10.1.0.14, 89.167.90.152)
+# Git: http://gitlab-real.unde.life/unde/Recognition.git
+# Docker: recognition-orchestrator (Celery worker, concurrency=2, 1GB limit)
+# node_exporter 1.8.2 (systemd, 0.0.0.0:9100)
+# DB table recognition_requests создана в Production DB (10.1.1.2)
 
-apt update && apt install -y docker.io docker-compose
-git clone http://gitlab-real.unde.life/unde/recognition.git /opt/unde/recognition
-cd /opt/unde/recognition
-cp .env.example .env  # Заполнить: Redis, DB, XIMILAR_GW_URL, LLM_RERANKER_URL
-
-# Создать таблицу в Production DB
-psql -h 10.1.1.2 -p 6432 -U undeuser -d unde_main < deploy/init-db.sql
-
-# Запустить
-docker-compose up -d
-
-# Тест полного pipeline
-./scripts/test-recognize.sh
+# Тест
+./scripts/health-check.sh
 ```
 
 ### День 6: Интеграция
