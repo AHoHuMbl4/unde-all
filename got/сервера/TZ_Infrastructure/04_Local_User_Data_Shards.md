@@ -620,7 +620,7 @@ vm.dirty_ratio = 10                 # Синхронная запись при 1
 | Узел | Локация | Тип | IP | Зачем |
 |------|---------|-----|-----|-------|
 | etcd-1 | Локально (local-etcd-1) | 1 vCPU / 2 GB | 10.2.0.50 | Локальный голос для primary |
-| etcd-2 | Hetzner Helsinki (на shard-replica-0) | Контейнер | 10.1.1.10 | Голос replica |
+| etcd-2 | Hetzner Helsinki (отдельный сервер) | CX23 | 10.1.0.17 | Голос replica |
 | etcd-3 | Hetzner Helsinki (CPX11) | Dedicated (~€4/мес) | 10.1.0.15 | Кворум: 2 из 3 в Hetzner |
 
 **Логика кворума:**

@@ -138,8 +138,8 @@
 | H13 | **llm-reranker** | 10.1.0.13 | 89.167.106.167 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Развёрнут |
 | H14 | **staging-db** | 10.1.0.8 | 89.167.91.76 | CPX22 | €12 | PostgreSQL staging + PgBouncer | ✅ Развёрнут |
 | H15 | **shard-replica-0** | 10.1.1.10 | — | Dedicated (Xeon E3-1275V6, 64 GB, 2×NVMe 512 GB) | ~€39 | Hot standby replica шарда 0 (Patroni + streaming replication) | ✅ Создан |
-| H16 | **etcd-2** | на shard-replica-0 | — | контейнер | €0 | etcd quorum node 2 (на сервере реплики) | 🆕 Создать |
-| H17 | **etcd-3** | 10.1.0.15 | — | CX23 | €4 | etcd quorum node 3 (tiebreaker) | ✅ Создан |
+| H16 | **etcd-2** | 10.1.0.17 | 65.109.162.92 | CX23 | €4 | etcd quorum node 2 | ✅ Развёрнут |
+| H17 | **etcd-3** | 10.1.0.15 | 89.167.98.219 | CX23 | €4 | etcd quorum node 3 (tiebreaker) | ✅ Развёрнут |
 | H18 | **posthog** | 10.1.1.30 | — | Dedicated (Xeon E3-1275V6, 64 GB, 2×SATA 480 GB) | ~€39 | PostHog self-hosted (ClickHouse + PG + Redis + Kafka) | ✅ Создан |
 | H19 | **monitoring** | 10.1.0.7 | 89.167.83.72 | CX33 | €25 | Prometheus + Grafana + Alertmanager | ✅ Развёрнут |
 | — | **Object Storage** | hel1.your-objectstorage.com | — | S3-compatible | ~€10 | unde-images, unde-user-media, unde-shard-backups | ✅ Создан |
@@ -154,7 +154,7 @@
 | 4 | + shard-replica-2, 3 (CCX23) | +€78/мес |
 | 8+ | CCX33 (32 GB) для реплик при росте данных | +€74/шт |
 
-> **Почему Dedicated (64 GB) для реплик при 32 GB primary:** Dedicated сервер с 64 GB стоит столько же (~€39), сколько CCX23 с 16 GB. Дополнительная RAM позволяет реплике при failover работать как полноценный primary без деградации. Бонус: больше OS page cache для ClickHouse-подобных нагрузок etcd-2 на том же хосте.
+> **Почему Dedicated (64 GB) для реплик при 32 GB primary:** Dedicated сервер с 64 GB стоит столько же (~€39), сколько CCX23 с 16 GB. Дополнительная RAM позволяет реплике при failover работать как полноценный primary без деградации. Бонус: больше OS page cache.
 
 ---
 
@@ -690,7 +690,7 @@ scrape_configs:
       - targets: ['10.1.1.10:9100', '10.1.1.10:9187']
   - job_name: 'helsinki-etcd'
     static_configs:
-      - targets: ['10.1.1.10:2379', '10.1.0.15:2379']
+      - targets: ['10.1.0.17:2379', '10.1.0.15:2379']
   - job_name: 'helsinki-recognition'
     static_configs:
       - targets: ['10.1.0.14:9100']

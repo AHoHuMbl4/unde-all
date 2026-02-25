@@ -124,7 +124,7 @@ scrape_configs:
 
   - job_name: 'etcd-cluster'
     static_configs:
-      - targets: ['10.1.1.10:2379', '10.1.0.15:2379']
+      - targets: ['10.1.0.17:2379', '10.1.0.15:2379']
       # dubai-shard-0:2379 — теперь локальный, см. 07_Server_Layout_v7.md
 
   - job_name: 'postgres-staging'
@@ -544,7 +544,7 @@ python3 -c "import secrets, base64; print(base64.b64encode(secrets.token_bytes(3
 
 # 12. Установить etcd на 3 узла:
 #     etcd-1: контейнер на Dubai app-сервере
-#     etcd-2: контейнер на Hetzner AX102
+#     etcd-2: Hetzner CX23 (10.1.0.17)
 #     etcd-3: Hetzner CPX11 (10.1.0.15)
 
 # 13. Установить Patroni на Dubai primary и Hetzner replica
