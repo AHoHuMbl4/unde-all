@@ -102,6 +102,10 @@ scrape_configs:
     static_configs:
       - targets: ['10.1.0.13:9100']
 
+  - job_name: 'llm-reranker-app'
+    static_configs:
+      - targets: ['10.1.0.13:8002']
+
   - job_name: 'node-staging-db'
     static_configs:
       - targets: ['10.1.0.8:9100']
@@ -314,17 +318,15 @@ docker compose exec collage-worker celery -A app.celery_app call app.tasks.proce
 curl -s http://10.1.0.12:8001/health | python3 -m json.tool
 
 # 2. LLM Reranker
-# Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.13
-
-apt update && apt install -y docker.io docker-compose
-git clone http://gitlab-real.unde.life/unde/llm-reranker.git /opt/unde/llm-reranker
-cd /opt/unde/llm-reranker
-cp .env.example .env  # Заполнить: GEMINI_API_KEY, CLAUDE_API_KEY
-docker-compose up -d
+# ✅ Развёрнут (CX23, 10.1.0.13, 89.167.106.167)
+# Git: http://gitlab-real.unde.life/unde/llm-reranker.git
+# Docker: llm-reranker (FastAPI, 2 uvicorn workers, 1GB limit, bind 10.1.0.13:8002)
+# node_exporter 1.8.2 (systemd, 0.0.0.0:9100)
+# Prometheus app metrics: GET http://10.1.0.13:8002/metrics
+# Gemini model: gemini-2.5-flash
 
 # Тест
-curl -X POST http://10.1.0.13:8002/tag -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/test-crop.jpg"}'
+curl -s http://10.1.0.13:8002/health | python3 -m json.tool
 
 # 3. Recognition Orchestrator
 # Hetzner Console → Создать сервер CPX11 (Helsinki), Private: 10.1.0.14

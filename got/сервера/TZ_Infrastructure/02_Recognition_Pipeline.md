@@ -523,7 +523,7 @@ WORKERS=4
 
 ---
 
-## 10. LLM RERANKER (новый)
+## 10. LLM RERANKER (✅ Работает)
 
 ### Информация
 
@@ -531,11 +531,14 @@ WORKERS=4
 |----------|----------|
 | **Hostname** | llm-reranker |
 | **Private IP** | 10.1.0.13 |
-| **Тип** | Hetzner CPX11 |
+| **Public IP** | 89.167.106.167 |
+| **Тип** | Hetzner CX23 |
 | **vCPU** | 2 |
-| **RAM** | 2 GB |
-| **Disk** | 40 GB NVMe |
-| **OS** | Ubuntu 24.04 LTS |
+| **RAM** | 4 GB |
+| **Disk** | 40 GB SSD |
+| **OS** | Ubuntu 24.04.3 LTS |
+| **Git** | http://gitlab-real.unde.life/unde/llm-reranker.git |
+| **Статус** | ✅ Развёрнут, контейнер running |
 
 ### Назначение
 
@@ -549,7 +552,7 @@ WORKERS=4
 - **Другая стоимость:** LLM-вызовы дороже Ximilar — отдельный мониторинг расходов
 - **Изоляция отказов:** Gemini недоступен → Detection + Search продолжают работать, Orchestrator отдаёт результаты без реранкинга
 
-### Почему CPX11
+### Почему CX23
 
 Сервер отправляет JSON/URL в Gemini API и ждёт ответ. Чистый I/O. Минимум CPU/RAM.
 
@@ -579,6 +582,7 @@ services:
     build: .
     container_name: llm-reranker
     restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --workers 2
     env_file: .env
     ports:
       - "10.1.0.13:8002:8002"
@@ -586,14 +590,10 @@ services:
       resources:
         limits:
           memory: 1G
-
-  node-exporter:
-    image: prom/node-exporter:v1.7.0
-    container_name: node-exporter
-    restart: unless-stopped
-    ports:
-      - "10.1.0.13:9100:9100"
 ```
+
+> node_exporter v1.8.2 установлен как systemd сервис (0.0.0.0:9100), не в Docker.
+> Prometheus app metrics: `GET http://10.1.0.13:8002/metrics` (prometheus-fastapi-instrumentator).
 
 ### Environment Variables
 
@@ -601,7 +601,9 @@ services:
 # /opt/unde/llm-reranker/.env
 
 # Gemini
-GEMINI_API_KEY=xxx
+GEMINI_API_KEY=AIzaSyBQB2jKFgBDLeBIiqeHFVC_8q5INAvr9D0
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_API_URL=https://generativelanguage.googleapis.com/v1beta
 
 # Server
 HOST=0.0.0.0
@@ -620,20 +622,17 @@ WORKERS=2
 ├── requirements.txt
 ├── app/
 │   ├── __init__.py
-│   ├── main.py               # FastAPI app
-│   ├── routes/
-│   │   ├── tag.py             # POST /tag (Gemini context tagging)
-│   │   └── rerank.py          # POST /rerank (Gemini visual rerank)
-│   ├── clients/
-│   │   └── gemini_client.py
-│   └── prompts/
-│       ├── tag_prompt.py
-│       └── rerank_prompt.py
+│   ├── main.py               # FastAPI app + Prometheus + /health
+│   ├── config.py              # Pydantic Settings from .env
+│   ├── gemini_client.py       # Async httpx client → Gemini API
+│   └── routes/
+│       ├── __init__.py
+│       ├── tag.py             # POST /tag (Gemini context tagging)
+│       └── rerank.py          # POST /rerank (Gemini visual rerank)
 ├── scripts/
 │   ├── health-check.sh
-│   └── test-rerank.sh
-└── deploy/
-    └── netplan-private.yaml
+│   └── test-tag.sh
+└── data/                      # Empty, for future use
 ```
 
 ---

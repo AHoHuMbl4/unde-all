@@ -143,7 +143,7 @@
 | H10 | **photo-downloader** | 10.1.0.10 | CX23 | €12 | Скачивание фото брендов → Object Storage (Bright Data proxy) | ✅ Развёрнут |
 | H11 | **ximilar-sync** | 10.1.0.11 | CX23 | €6 | Синхронизация каталога → Ximilar Collection | ✅ Развёрнут |
 | H12 | **ximilar-gw** | 10.1.0.12 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Развёрнут |
-| H13 | **llm-reranker** | 10.1.0.13 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Создан |
+| H13 | **llm-reranker** | 10.1.0.13 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Развёрнут |
 | H14 | **staging-db** | 10.1.0.8 | CPX22 | €12 | PostgreSQL staging (raw_products, raw_availability) | ✅ Создан |
 | H15 | **shard-replica-0** | 10.1.1.10 | Dedicated (Xeon E3-1275V6, 64 GB, 2×NVMe 512 GB) | ~€39 | Hot standby replica шарда 0 (Patroni + streaming replication) | ✅ Создан |
 | H16 | **etcd-2** | на shard-replica-0 | контейнер | €0 | etcd quorum node 2 (на сервере реплики) | 🆕 Создать (сервер готов) |
@@ -706,7 +706,7 @@ scrape_configs:
       - targets: ['10.1.0.12:9100', '10.1.0.12:8001']
   - job_name: 'helsinki-llm-reranker'
     static_configs:
-      - targets: ['10.1.0.13:9100']
+      - targets: ['10.1.0.13:9100', '10.1.0.13:8002']
   - job_name: 'helsinki-apify'
     static_configs:
       - targets: ['10.1.0.9:9100']
