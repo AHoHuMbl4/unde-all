@@ -51,6 +51,12 @@ REDIS_URL=redis://:kyha6QEgtmjk3vuFflSdUDa1Xqu41zRl9ce9oq0+UPQ=@10.1.0.4:6379/6
 GEMINI_API_KEY=AIzaSyBQB2jKFgBDLeBIiqeHFVC_8q5INAvr9D0
 ```
 
+### Ximilar (ximilar-sync 10.1.0.11 + ximilar-gw 10.1.0.12)
+```
+XIMILAR_API_TOKEN=0d375331edcce2d5a927a10ee38403b2ebf8a115
+XIMILAR_COLLECTION_ID=<TODO: создать коллекцию>
+```
+
 ### Shard Replica 0 (10.1.1.10) — PostgreSQL unde_shard
 ```
 # LUKS password (md1 → /pgdata):
