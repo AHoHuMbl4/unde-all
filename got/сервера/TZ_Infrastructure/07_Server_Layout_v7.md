@@ -2,6 +2,8 @@
 
 *Обновление архитектуры: Локальные серверы (hot path) + Hetzner Helsinki (core/batch). Масштаб: 10–50K MAU.*
 
+> **🔄 Обновлено под [Pipeline v5.1](../../UNDE_Fashion_Recognition_Pipeline_v5.1.md)** — embedder (10.1.0.15) + embed-batch (10.1.0.17), обновлён recognition pipeline (5-step, dual retrieval), Production DB + pgvector.
+
 ---
 
 ## Принципы (обновлённые)
@@ -36,9 +38,10 @@
               │  Apify → Photo DL → Collage → Ximilar Sync            │
               │       ↘         ↘                                      │
               │     Staging DB    Object Storage                       │
-              │         ↓                                              │
+              │         ↓              ↓ 🔄 v5.1                       │
               │     Scraper → Production DB ←── Recognition pipeline   │
-              │                    │                                    │
+              │                    │  ↑ pgvector embeddings             │
+              │     Embedder (runtime) + Embed-Batch (indexing)  🔄v5.1│
               │     Shard Replicas (hot standby × N)                   │
               │     PostHog (product analytics)                        │
               │     Monitoring (Prometheus + Grafana + Alertmanager)   │
@@ -128,18 +131,20 @@
 | H3 | **push** | 10.1.0.4 | 77.42.30.44 | CPX32 | — | Redis broker (Celery queues) | ✅ Работает |
 | H4 | **model-generator** | 10.1.0.5 | 89.167.20.60 | CPX22 | — | Генерация моделей | ✅ Работает |
 | H5 | **tryon-service** | 10.1.0.6 | 89.167.31.65 | CPX22 | — | Try-on (fal.ai) | ✅ Работает |
-| H6 | **Production DB** | 10.1.1.2 | 135.181.209.26 | AX41 (dedicated) | — | PostgreSQL 17 + PgBouncer | ✅ Работает |
+| H6 | **Production DB** | 10.1.1.2 | 135.181.209.26 | AX41 (dedicated) | — | PostgreSQL 17 + PgBouncer + pgvector 0.8.1 (🔄 v5.1: `unde_ai.sku_image_embeddings`, HNSW) | ✅ Работает |
 | H7 | **apify** | 10.1.0.9 | 89.167.110.186 | CX23 | €12 | Сбор метаданных каталога (Apify.com, 6 брендов) | ✅ Развёрнут |
 | H8 | **collage** | 10.1.0.16 | 65.109.172.52 | CX33 | €25 | Склейка фото (горизонтальные коллажи для try-on) | ✅ Развёрнут |
-| H9 | **recognition** | 10.1.0.14 | 89.167.90.152 | CPX11 | €6 | Recognition Orchestrator (координация 4-step pipeline) | ✅ Развёрнут |
+| H9 | **recognition** | 10.1.0.14 | 89.167.90.152 | CPX11 | €6 | Recognition Orchestrator (🔄 v5.1: 5-step pipeline, dual retrieval, availability filter) | ✅ Развёрнут |
 | H10 | **photo-downloader** | 10.1.0.10 | 89.167.99.242 | CX23 | €12 | Скачивание фото брендов → Object Storage (Bright Data proxy) | ✅ Развёрнут |
-| H11 | **ximilar-sync** | 10.1.0.11 | 89.167.93.187 | CX23 | €6 | Синхронизация каталога → Ximilar Collection | ✅ Развёрнут |
-| H12 | **ximilar-gw** | 10.1.0.12 | 89.167.99.162 | CX23 | €12 | Ximilar Gateway (/detect, /tag, /search) | ✅ Развёрнут |
+| H11 | **ximilar-sync** | 10.1.0.11 | 89.167.93.187 | CX23 | €6 | Синхронизация каталога → Ximilar Collection (🔄 v5.1: 2 фото/SKU, index_scope) | ✅ Развёрнут |
+| H12 | **ximilar-gw** | 10.1.0.12 | 89.167.99.162 | CX23 | €12 | Ximilar Gateway (🔄 v5.1: /detect, /tag, /search с dual retrieval pgvector+Ximilar) | ✅ Развёрнут |
 | H13 | **llm-reranker** | 10.1.0.13 | 89.167.106.167 | CX23 | €6 | LLM Reranker (Gemini visual comparison) | ✅ Развёрнут |
 | H14 | **staging-db** | 10.1.0.8 | 89.167.91.76 | CPX22 | €12 | PostgreSQL staging + PgBouncer | ✅ Развёрнут |
 | H15 | **shard-replica-0** | 10.1.1.10 | — | Dedicated (Xeon E3-1275V6, 64 GB, 2×NVMe 512 GB) | ~€39 | Hot standby replica шарда 0 (Patroni, LUKS, PG 17.8 + pgvector 0.8.1) | ✅ Развёрнут |
 | H16 | **etcd-2** | 10.1.0.17 | 65.109.162.92 | CX23 | €4 | etcd quorum node 2 | ✅ Развёрнут |
 | H17 | **etcd-3** | 10.1.0.15 | 89.167.98.219 | CX23 | €4 | etcd quorum node 3 (tiebreaker) | ✅ Развёрнут |
+| H20 | **embedder** | 10.1.0.15 | 89.167.98.219 | Dedicated (i7-8700, 64 GB, 2×NVMe 512 GB) | ~€36.70 | 🔄 v5.1: FashionCLIP 2.0 ONNX runtime `POST /embed` (live inference для search) | 🆕 Создать |
+| H21 | **embed-batch** | 10.1.0.17 | 65.109.162.92 | Dedicated (i7-8700, 64 GB, 2×SSD 512 GB) | ~€36.70 | 🔄 v5.1: Фоновая batch-индексация `POST /embed_batch` (каталог → pgvector) | 🆕 Создать |
 | H18 | **posthog** | 10.1.1.30 | 95.216.39.182 | Dedicated (Xeon E3-1275V6, 64 GB, 2×SATA 480 GB) | ~€39 | PostHog self-hosted (ClickHouse + PG + Redis + Kafka) | ✅ Развёрнут |
 | H19 | **monitoring** | 10.1.0.7 | 89.167.83.72 | CX33 | €25 | Prometheus + Grafana + Alertmanager | ✅ Развёрнут |
 | — | **Object Storage** | hel1.your-objectstorage.com | — | S3-compatible | ~€10 | unde-images, unde-user-media, unde-shard-backups | ✅ Создан |
@@ -167,10 +172,11 @@
 | **Локальные (hot path)** | 9 | Зависит от провайдера* |
 | **Helsinki существующие** | 6 | Уже оплачены |
 | **Helsinki новые** | 10 + storage | ~€218/мес |
+| **🔄 v5.1: Embedder + Embed-Batch** | 2 (dedicated) | ~€73.40/мес |
 | **PostHog** | 1 | ~€39/мес |
 | **Monitoring** | 1 | €25/мес |
 | **Helsinki GW (router)** | 1 | €12/мес |
-| **Итого Helsinki новые** | | **~€294/мес** |
+| **Итого Helsinki новые** | | **~€367/мес** (🔄 v5.1: +€73 за embedding серверы) |
 
 *Ориентировочная стоимость локальных серверов (суммарно ~37 vCPU, 76 GB RAM):*
 
@@ -295,8 +301,9 @@ Voice → ElevenLabs:                    200-500ms (внешний)
 | Запрос | Когда | Latency | Частота |
 |--------|-------|---------|---------|
 | Catalog lookup (Production DB) | Cache miss в Redis | ~120ms | Редко (кеш тёплый) |
-| Fashion Recognition | Юзер загрузил фото | ~120ms + 2-4s pipeline | Async, юзер видит progressive loading |
+| Fashion Recognition | Юзер загрузил фото | ~120ms + 3-6s pipeline (🔄 v5.1: dual retrieval + availability filter) | Async, юзер видит progressive loading |
 | Catalog sync | Scraper cron | ~120ms | Каждый час, batch |
+| Embedding batch indexing (🔄 v5.1) | Новые SKU / weekly progressive | embed-batch (10.1.0.17) → Production DB | Фоновый, cron/event |
 | Shard replica streaming | Continuous WAL | ~120ms | Фоновый поток |
 
 ---
@@ -712,6 +719,13 @@ scrape_configs:
   - job_name: 'helsinki-ximilar-sync'
     static_configs:
       - targets: ['10.1.0.11:9100']
+  # 🔄 v5.1: Embedding серверы
+  - job_name: 'helsinki-embedder'
+    static_configs:
+      - targets: ['10.1.0.15:9100', '10.1.0.15:8003']
+  - job_name: 'helsinki-embed-batch'
+    static_configs:
+      - targets: ['10.1.0.17:9100', '10.1.0.17:8004']
   - job_name: 'helsinki-posthog'
     static_configs:
       - targets: ['10.1.1.30:9100']
@@ -779,6 +793,8 @@ scrape_configs:
 | Grafana admin password | .env | Monitoring server |
 | Alertmanager Telegram bot token | .env | Monitoring server |
 | Alertmanager Slack webhook URL | .env | Monitoring server |
+| 🔄 v5.1: Production DB password (embeddings) | .env | embed-batch (INSERT в sku_image_embeddings) |
+| 🔄 v5.1: S3 Access Key (originals read) | .env | embed-batch (скачка фото для embedding) |
 
 ---
 

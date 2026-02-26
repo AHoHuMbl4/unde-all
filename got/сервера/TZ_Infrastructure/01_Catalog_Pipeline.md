@@ -2,6 +2,8 @@
 
 *Серверы каталожного pipeline.*
 
+> **🔄 Обновлено под [Pipeline v5.1](../../UNDE_Fashion_Recognition_Pipeline_v5.1.md)** — 2 фото/SKU в Ximilar, новые поля в raw_products (index_scope, ximilar_synced_urls, ximilar_target_count), новые индексы availability.
+
 ---
 
 ## 1. SCRAPER SERVER (существующий)
@@ -454,12 +456,14 @@ async def download_pending():
 | **Git** | http://gitlab-real.unde.life/unde/ximilar-sync.git |
 | **Статус** | ✅ Развёрнут, контейнеры running |
 
-### Назначение
+### Назначение (🔄 v5.1: selective sync)
 
 Синхронизация каталога товаров в Ximilar Collection (для Fashion Recognition Pipeline):
-- Мониторит Staging DB на записи с `ximilar_status='pending'` и `image_status` IN ('uploaded', 'collage_ready')
-- Загружает фото в Ximilar Collection с метаданными
-- Обновляет статус на `ximilar_status='synced'`
+- Мониторит Staging DB на записи с `ximilar_status IN ('pending', 'partial')` и `image_status` IN ('uploaded', 'collage_ready')
+- **🔄 v5.1:** Загружает только **2 фото/SKU** (on-model + front) вместо всех 5-7. Экономия -60% insert credits
+- **🔄 v5.1:** Фильтрует по `index_scope = 'pilot'` — только пилотные бренды грузятся в Ximilar
+- **🔄 v5.1:** Idempotent — отслеживает `ximilar_synced_urls`, не переотправляет уже загруженные фото
+- Обновляет статус: `'pending'` → `'partial'` → `'synced'`
 
 ### Почему отдельный сервер
 
@@ -530,48 +534,68 @@ REDIS_URL=redis://:<password>@10.1.0.4:6379/7
 BATCH_SIZE=1000
 ```
 
-### Процесс синхронизации
+### Процесс синхронизации (🔄 v5.1: selective, idempotent)
 
 ```python
-# Псевдокод
+# Псевдокод (🔄 v5.1: 2 фото/SKU, index_scope filter, idempotency)
 
 def sync_to_ximilar():
-    """Загрузить ВСЕ 5-7 фото каждого SKU в Ximilar Collection с метаданными
-    (SKU ID, бренд, цена, магазин, этаж). Ximilar индексирует все ракурсы
-    и матчит по лучшему автоматически."""
+    """Загрузить 2 фото/SKU (on-model + front) в Ximilar Collection.
+    🔄 v5.1: только пилотные бренды (index_scope='pilot'),
+    idempotent через ximilar_synced_urls, progressive ingestion."""
     products = db.query("""
-        SELECT id, external_id, brand, name, category, price, image_urls
-        FROM raw_products 
+        SELECT id, external_id, brand, name, category, price,
+               image_urls, ximilar_synced_urls, ximilar_target_count
+        FROM raw_products
         WHERE image_status IN ('uploaded', 'collage_ready')
-          AND ximilar_status = 'pending'
+          AND ximilar_status IN ('pending', 'partial')
+          AND index_scope = 'pilot'                    -- 🔄 v5.1: только пилотные
         LIMIT 1000
     """)
-    
+
     for product in products:
         try:
-            ximilar.add_images(
-                collection_id=XIMILAR_COLLECTION_ID,
-                images=[{"url": url} for url in product.image_urls],
-                metadata={
-                    "sku_id": product.external_id,
-                    "brand": product.brand,
-                    "name": product.name,
-                    "category": product.category,
-                    "price": str(product.price),
-                    "store": product.store_name,
-                    "floor": product.floor
-                }
-            )
+            # 🔄 v5.1: отправляем только target_count фото (default: 2)
+            target = product.ximilar_target_count or 2
+            images = product.image_urls[:target]
+            synced = set(product.ximilar_synced_urls or [])
+
+            # 🔄 v5.1: idempotency — не переотправлять уже загруженные
+            to_send = [url for url in images if url not in synced]
+
+            if to_send:
+                ximilar.add_images(
+                    collection_id=XIMILAR_COLLECTION_ID,
+                    images=[{"url": url} for url in to_send],
+                    metadata={
+                        "sku_id": product.external_id,
+                        "brand": product.brand,
+                        "name": product.name,
+                        "category": product.category,
+                        "price": str(product.price)
+                        # 🔄 v5.1: НЕТ store/floor — глобальные метаданные
+                    }
+                )
+
+            new_synced = list(synced | set(to_send))
+            synced_count = len(new_synced)
+
+            # 🔄 v5.1: partial (отправлено < target) или synced (все target фото)
+            new_status = 'synced' if synced_count >= target else 'partial'
+
             db.execute("""
-                UPDATE raw_products 
-                SET ximilar_status = 'synced', ximilar_synced_at = NOW()
-                WHERE id = ?
-            """, product.id)
+                UPDATE raw_products
+                SET ximilar_status = %s,
+                    ximilar_synced_urls = %s,
+                    ximilar_synced_at = NOW()
+                WHERE id = %s
+            """, new_status, json.dumps(new_synced), product.id)
+
         except Exception as e:
             db.execute("""
-                UPDATE raw_products 
-                SET ximilar_status = 'error', error_message = ?
-                WHERE id = ?
+                UPDATE raw_products
+                SET ximilar_status = 'error', error_message = %s
+                WHERE id = %s
             """, str(e), product.id)
 ```
 
@@ -809,8 +833,17 @@ CREATE TABLE raw_products (
         -- pending → synced | skipped | error
     
     ximilar_status VARCHAR(20) DEFAULT 'pending',
-        -- pending → synced | error
+        -- pending → partial → synced | error
+        -- 🔄 v5.1: partial = отправлено < target фото (progressive ingestion)
     ximilar_synced_at TIMESTAMPTZ,
+
+    -- 🔄 v5.1: новые поля для selective sync и progressive ingestion
+    index_scope TEXT DEFAULT 'off',
+        -- 'pilot' = грузить в Ximilar, 'pgvector' = только pgvector, 'off' = не индексировать
+    ximilar_synced_urls JSONB DEFAULT '[]',
+        -- URL'ы уже отправленные в Ximilar (idempotency)
+    ximilar_target_count SMALLINT DEFAULT 2,
+        -- сколько фото грузить (2 по умолчанию, повышается progressive ingestion)
     
     synced_at TIMESTAMPTZ,
     error_message TEXT,
@@ -884,6 +917,12 @@ CREATE INDEX idx_raw_products_scraped_at ON raw_products(scraped_at);
 CREATE INDEX idx_raw_availability_brand_store ON raw_availability(brand, store_id);
 CREATE INDEX idx_raw_availability_product ON raw_availability(product_id);
 CREATE INDEX idx_raw_availability_fetched ON raw_availability(fetched_at);
+
+-- 🔄 v5.1: индексы для availability post-filter (Step 3.5 Recognition Pipeline)
+CREATE INDEX IF NOT EXISTS idx_raw_availability_lookup
+    ON raw_availability (brand, store_id, product_id, fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_raw_availability_brand_product
+    ON raw_availability (brand, product_id);
 CREATE INDEX idx_scraper_logs_name ON scraper_logs(scraper_name);
 CREATE INDEX idx_scraper_logs_started ON scraper_logs(started_at DESC);
 ```

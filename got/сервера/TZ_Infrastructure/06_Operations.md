@@ -2,6 +2,8 @@
 
 *Часть [TZ Infrastructure v7.2](../TZ_Infrastructure_Final.md). Всё что нужно для эксплуатации.*
 
+> **🔄 Обновлено под [Pipeline v5.1](../../UNDE_Fashion_Recognition_Pipeline_v5.1.md)** — embedding batch schedule, новые Prometheus targets (embedder, embed-batch), метрики dual retrieval / availability / pgvector, feature flags для recognition, новые credentials.
+
 ---
 
 ## 18. РАСПИСАНИЕ ЗАДАЧ
@@ -27,10 +29,16 @@
 | **enrichment_ttl_recovery** | local-orchestrator (10.2.0.17) | Каждые 6 часов | :00 | Сообщения без embedding старше 1ч → force enrich (retry < 3, LIMIT 500). KSP Фикс 14 |
 | **life_event_expiry** | Local Shard (cron) | Ежедневно | 03:00 | user_knowledge: life_event с expires_at < NOW() → is_active=FALSE. KSP Фикс 3 |
 | **extraction_review_sample** | local-orchestrator (10.2.0.17) | Ежедневно | 06:00 | [Фаза 2] 1% random sample batch extractions → review. KSP Фикс 1B |
+| **🔄 embedding_batch_sync** | embed-batch (10.1.0.17) | Еженедельно | Пн 02:00 | v5.1: Batch-индексация новых SKU в pgvector (FashionCLIP → sku_image_embeddings) |
+| **🔄 embedding_progressive** | embed-batch (10.1.0.17) | Еженедельно | Ср 03:00 | v5.1: Progressive ingestion — догрузка фото для SKU с низким rerank score |
 
-**Recognition Orchestrator** — без расписания, обрабатывает запросы в реальном времени через Celery queue.
+**Recognition Orchestrator** — без расписания, обрабатывает запросы в реальном времени через Celery queue (🔄 v5.1: 5-step pipeline с dual retrieval и availability filter).
 
-**Ximilar Gateway** — без расписания, обрабатывает HTTP-запросы от Orchestrator в реальном времени.
+**Ximilar Gateway** — без расписания, обрабатывает HTTP-запросы от Orchestrator в реальном времени (🔄 v5.1: dual retrieval — pgvector kNN через embedder + conditional Ximilar booster).
+
+**🔄 v5.1: Embedder (10.1.0.15)** — без расписания, обрабатывает HTTP-запросы от ximilar-gw в реальном времени (`POST /embed`, FashionCLIP 2.0 ONNX, 100–250ms).
+
+**🔄 v5.1: Embed-Batch (10.1.0.17)** — по расписанию (Пн 02:00 batch sync, Ср 03:00 progressive) + по событию (новые SKU). Batch-индексация каталога → pgvector (`POST /embed_batch`).
 
 **LLM Reranker** — без расписания, обрабатывает HTTP-запросы от Orchestrator в реальном времени.
 
@@ -130,6 +138,23 @@ scrape_configs:
   - job_name: 'postgres-staging'
     static_configs:
       - targets: ['10.1.0.8:9187']
+
+  # 🔄 v5.1: Embedding серверы
+  - job_name: 'node-embedder'
+    static_configs:
+      - targets: ['10.1.0.15:9100']
+
+  - job_name: 'embedder-app'
+    static_configs:
+      - targets: ['10.1.0.15:8003']
+
+  - job_name: 'node-embed-batch'
+    static_configs:
+      - targets: ['10.1.0.17:9100']
+
+  - job_name: 'embed-batch-app'
+    static_configs:
+      - targets: ['10.1.0.17:8004']
 ```
 
 ### Ключевые метрики
@@ -157,6 +182,21 @@ scrape_configs:
 | llm_reranker_latency_ms | LLM Reranker | p95 > 3s |
 | llm_reranker_errors | LLM Reranker | > 5% |
 | llm_reranker_cost_usd | LLM Reranker | threshold TBD |
+| **🔄 v5.1: Dual Retrieval & Availability** | | |
+| pgvector_knn_latency_ms | Ximilar Gateway | p95 > 50ms |
+| pgvector_knn_results_count | Ximilar Gateway | < 10 → индекс проблема |
+| embedder_inference_latency_ms | Embedder (10.1.0.15) | p95 > 300ms |
+| embedder_errors | Embedder (10.1.0.15) | > 1% |
+| embed_batch_throughput_imgs_sec | Embed-Batch (10.1.0.17) | < 3 → деградация |
+| embed_batch_job_duration_sec | Embed-Batch (10.1.0.17) | > 86400 (> 24ч) |
+| embed_batch_errors | Embed-Batch (10.1.0.17) | > 5% |
+| ximilar_booster_rate | Ximilar Gateway | — (info, % запросов с Ximilar booster) |
+| recognition_availability_filter_pass_rate | Recognition Orchestrator | < 20% → мало товаров в наличии |
+| recognition_candidates_after_availability | Recognition Orchestrator | avg < 3 → TOP-50 недостаточно |
+| recognition_used_ximilar_booster_rate | Recognition Orchestrator | — (info, калибровка CONFIDENCE_THRESHOLD) |
+| recognition_used_ximilar_tagging_rate | Recognition Orchestrator | — (info, калибровка tagging budget) |
+| sku_image_embeddings_count | Production DB | — (info, мониторинг размера индекса) |
+| sku_image_embeddings_hnsw_size_bytes | Production DB | > 20 GB → мониторинг |
 | llm_orchestrator_response_time_ms | LLM Orchestrator | p95 > 10s |
 | llm_orchestrator_errors | LLM Orchestrator | > 5% |
 | llm_orchestrator_cost_usd | LLM Orchestrator | threshold TBD |
@@ -221,6 +261,23 @@ scrape_configs:
 | local_snapshot_age_hours | Local Shard → NVMe | > 4 (missed 2 cycles) |
 | user_media_bucket_size | Hetzner | > 200 GB |
 | object_storage_size | Hetzner | > 200 GB |
+
+---
+
+## 19b. FEATURE FLAGS (🔄 v5.1)
+
+> Из [Pipeline v5.1](../../UNDE_Fashion_Recognition_Pipeline_v5.1.md). Переключение режимов recognition pipeline без деплоя.
+
+| Flag | Сервер | Значения | По умолчанию | Назначение |
+|------|--------|----------|-------------|-----------|
+| `SEARCH_BACKEND` | ximilar-gw (10.1.0.12) | `ximilar` / `pgvector` / `conditional` / `dual` | `conditional` | Режим поиска: Phase 1 = `ximilar`, Phase 2+ = `conditional` |
+| `TAGGING_MODE` | recognition (10.1.0.14) | `always` / `on_demand` / `off` | `on_demand` | Вызов Ximilar /tag: `always` = каждый запрос, `on_demand` = только при неуверенном search |
+| `CONFIDENCE_THRESHOLD` | ximilar-gw (10.1.0.12) | float 0–1 | `0.80` | Порог уверенности pgvector top-1 score для skip Ximilar booster |
+| `MARGIN` | ximilar-gw (10.1.0.12) | float 0–1 | `0.10` | Минимальный gap top1 - top2 для уверенного pgvector |
+| `AVAILABILITY_WINDOW` | recognition (10.1.0.14) | interval | `24 hours` | Окно свежести данных raw_availability |
+| `MIN_CANDIDATES` | recognition (10.1.0.14) | int | `3` | Минимум кандидатов после availability filter (ниже → дозапрос Ximilar) |
+
+**Emergency rollback**: `SEARCH_BACKEND=ximilar` + `TAGGING_MODE=always` → полный откат на Ximilar-only pipeline (Phase 1 поведение).
 
 ---
 
@@ -339,6 +396,54 @@ curl -s http://10.1.0.13:8002/health | python3 -m json.tool
 ./scripts/health-check.sh
 ```
 
+### День 5b: Embedding серверы (🔄 v5.1 — NEW)
+
+```bash
+# 1. Embedder (runtime inference)
+# Hetzner Robot → Заказать dedicated i7-8700, 64 GB, 2×NVMe 512 GB (HEL1-DC2)
+# Private IP: 10.1.0.15, ~€36.70/мес
+# Git: http://gitlab-real.unde.life/unde/embedder.git
+# Docker: embedder (FastAPI, ONNX Runtime, FashionCLIP 2.0, bind 0.0.0.0:8003)
+# node_exporter 1.8.2 (systemd)
+
+apt update && apt install -y docker.io docker-compose
+git clone http://gitlab-real.unde.life/unde/embedder.git /opt/unde/embedder
+cd /opt/unde/embedder
+cp .env.example .env  # Заполнить: MODEL_PATH, PORT=8003
+docker-compose up -d
+
+# Тест
+curl -X POST http://10.1.0.15:8003/embed \
+  -H "Content-Type: application/json" \
+  -d '{"image_url":"https://hel1.your-objectstorage.com/unde-images/originals/zara/12345/0.jpg"}'
+# Проверить latency < 300ms, возвращает vector(512)
+
+# 2. Embed-Batch (фоновая индексация)
+# Hetzner Robot → Заказать dedicated i7-8700, 64 GB, 2×SSD 512 GB (HEL1)
+# Private IP: 10.1.0.17, ~€36.70/мес
+# Git: http://gitlab-real.unde.life/unde/embed-batch.git
+# Docker: embed-batch (FastAPI + Celery worker, ONNX Runtime, FashionCLIP 2.0, bind 0.0.0.0:8004)
+# node_exporter 1.8.2 (systemd)
+
+apt update && apt install -y docker.io docker-compose
+git clone http://gitlab-real.unde.life/unde/embed-batch.git /opt/unde/embed-batch
+cd /opt/unde/embed-batch
+cp .env.example .env  # Заполнить: MODEL_PATH, PRODUCTION_DB_URL, S3_*, PORT=8004
+docker-compose up -d
+
+# 3. Создать таблицу sku_image_embeddings в Production DB (10.1.1.2)
+psql -h 10.1.1.2 -p 6432 -U admin -d unde_ai < deploy/init-embeddings-table.sql
+# Создаст: sku_image_embeddings + HNSW index + brand index + unique constraint
+
+# 4. Initial load (запустить на ночь, 8–13 часов для 47K SKU × 5 фото)
+curl -X POST http://10.1.0.17:8004/embed_batch \
+  -H "Content-Type: application/json" \
+  -d '{"scope":"all","batch_size":500}'
+
+# Мониторинг progress:
+curl http://10.1.0.17:8004/status
+```
+
 ### День 6: Интеграция
 
 ```bash
@@ -350,15 +455,25 @@ curl -s http://10.1.0.13:8002/health | python3 -m json.tool
 
 # 3. Обновить Prometheus (App Server)
 #    Добавить targets: recognition, ximilar-gw, llm-reranker, photo-downloader, ximilar-sync
+#    🔄 v5.1: + embedder (10.1.0.15:9100, 10.1.0.15:8003), embed-batch (10.1.0.17:9100, 10.1.0.17:8004)
 
-# 4. Проверить полный flow
+# 4. Обновить ximilar-gw (10.1.0.12):
+#    🔄 v5.1: Добавить EMBEDDER_URL=http://10.1.0.15:8003, PRODUCTION_DB_URL, SEARCH_BACKEND=conditional
+#    Добавить CONFIDENCE_THRESHOLD=0.80, MARGIN=0.10
+
+# 5. Обновить recognition (10.1.0.14):
+#    🔄 v5.1: Добавить STAGING_DB_URL (для availability filter), TAGGING_MODE=on_demand
+#    Добавить AVAILABILITY_WINDOW=24h, MIN_CANDIDATES=3
+
+# 6. Проверить полный flow
 #    a. Apify: собрать 100 товаров Zara (метаданные)
 #    b. Photo Downloader: скачать фото
 #    c. Ximilar Sync: загрузить в Collection
 #    d. Collage: обработать
 #    e. Scraper: sync в Production
-#    f. Recognition: тестовый запрос (Orchestrator → Ximilar GW + LLM Reranker)
-#    g. App: проверить API /api/v1/recognize
+#    f. 🔄 v5.1: Embed-Batch: проиндексировать тестовые SKU в pgvector
+#    g. Recognition: тестовый запрос (dual retrieval + availability filter)
+#    h. App: проверить API /api/v1/recognize
 ```
 
 ### День 7: Mood Agent Server
@@ -601,6 +716,8 @@ EOF
 │  Recognition (10.1.0.14)  — только private network         │
 │  Ximilar GW (10.1.0.12) — только private network*         │
 │  LLM Reranker (10.1.0.13) — только private network*       │
+│  🔄 Embedder (10.1.0.15)  — только private network        │
+│  🔄 Embed-Batch (10.1.0.17) — только private network      │
 │  LLM Orchestrator (10.1.0.17) — только private network*   │
 │  Mood Agent (10.1.0.11)  — только private network*        │
 │  Voice (10.1.0.12)       — только private network*        │
@@ -671,6 +788,9 @@ Tombstone Registry:
 | Local Shard DB password | .env | App Server, LLM Orchestrator |
 | Master Encryption Key (AES-256, User Knowledge) | .env (RAM only) | Local Shard, LLM Orchestrator |
 | Replication password | .env | Local Shard ↔ Hetzner Replica |
+| 🔄 v5.1: Production DB password (embeddings) | .env | embed-batch (INSERT в unde_ai.sku_image_embeddings) |
+| 🔄 v5.1: Production DB password (pgvector read) | .env | ximilar-gw (SELECT kNN из sku_image_embeddings) |
+| 🔄 v5.1: S3 Access Key (originals read) | .env | embed-batch (скачка фото из /originals/ для embedding) |
 | Storage Box credentials (db01) | /root/.storagebox-creds | Production DB |
 | LUKS passphrase (Dubai NVMe) | Offline (не на сервере) | Local Shard |
 | etcd TLS certificates | /etc/etcd/ssl/ | etcd-1, etcd-2, etcd-3 |

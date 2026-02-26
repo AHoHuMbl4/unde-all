@@ -1,5 +1,7 @@
 # UNDE Infrastructure — Итоговое ТЗ v7.2
 
+> **🔄 Обновлено под [Pipeline v5.1](../../UNDE_Fashion_Recognition_Pipeline_v5.1.md)** — embedder + embed-batch серверы, pgvector dual retrieval в архитектуре, sku_image_embeddings в Production DB.
+
 ## Принципы архитектуры
 
 - **1 сервер = 1 задача** — изоляция для отладки и масштабирования
@@ -96,15 +98,18 @@
               │ Hetzner      │  │ • collage→fal │  │ (10.1.0.14)       │
               │ └── API      │  └───────────────┘  └──┬──────────┬─────┘
               └──────┬───────┘                         │          │
-                     │                                 ▼          ▼
-                     │                     ┌────────────┐ ┌────────────┐
-                     │                     │XIMILAR GW  │ │LLM RERANKER│
-                     │                     │(10.1.0.12) │ │(10.1.0.13) │
-                     │                     │• detect    │ │• Gemini tag│
-                     │                     │• tag       │ │• Gemini    │
-                     │                     │• search    │ │  rerank    │
-                     │                     └────────────┘ └────────────┘
-                     │
+                     │                        ┌────────┴──┐       │
+                     │                        ▼           ▼       ▼
+                     │            ┌────────────┐  ┌────────────┐ ┌────────────┐
+                     │            │XIMILAR GW  │  │ EMBEDDER   │ │LLM RERANKER│
+                     │            │(10.1.0.12) │  │(10.1.0.15) │ │(10.1.0.13) │
+                     │            │• detect    │  │🔄 v5.1     │ │• Gemini tag│
+                     │            │• tag       │  │FashionCLIP │ │• Gemini    │
+                     │            │• search    │  │ONNX runtime│ │  rerank    │
+                     │            │ (dual retr)│  │→pgvector   │ └────────────┘
+                     │            └────────────┘  └────────────┘
+                     │                     🔄 v5.1: + EMBED-BATCH (10.1.0.17)
+                     │                     фоновая индексация → pgvector
                      │
               ┌──────┴───── WireGuard (каждый сервер — отдельный туннель) ─────┐
               │              ~120ms RTT, через helsinki-gw (10.1.0.2)          │
@@ -169,18 +174,20 @@
 | H3 | **push** | 10.1.0.4 | 77.42.30.44 | CPX32 | Redis broker (Celery queues) | ✅ Работает |
 | H4 | **model-generator** | 10.1.0.5 | 89.167.20.60 | CPX22 | Генерация моделей | ✅ Работает |
 | H5 | **tryon-service** | 10.1.0.6 | 89.167.31.65 | CPX22 | Try-on (fal.ai) | ✅ Работает |
-| H6 | **Production DB** | 10.1.1.2 | 135.181.209.26 | AX41 (dedicated) | PostgreSQL 17 + PgBouncer | ✅ Работает |
+| H6 | **Production DB** | 10.1.1.2 | 135.181.209.26 | AX41 (dedicated) | PostgreSQL 17 + PgBouncer + pgvector 0.8.1 (🔄 v5.1: `unde_ai.sku_image_embeddings`) | ✅ Работает |
 | H7 | **apify** | 10.1.0.9 | 89.167.110.186 | CX23 | Сбор метаданных каталога (Apify.com) | ✅ Развёрнут |
 | H8 | **collage** | 10.1.0.16 | 65.109.172.52 | CX33 | Склейка фото SKU → коллаж (JPEG q=95) | ✅ Развёрнут |
-| H9 | **recognition** | 10.1.0.14 | 89.167.90.152 | CPX11 | Recognition Orchestrator (Celery, 4-step pipeline) | ✅ Развёрнут |
+| H9 | **recognition** | 10.1.0.14 | 89.167.90.152 | CPX11 | Recognition Orchestrator (Celery, 5-step pipeline 🔄 v5.1) | ✅ Развёрнут |
 | H10 | **photo-downloader** | 10.1.0.10 | 89.167.99.242 | CX23 | Скачивание фото → Object Storage (Bright Data proxy) | ✅ Развёрнут |
-| H11 | **ximilar-sync** | 10.1.0.11 | 89.167.93.187 | CX23 | Синхронизация каталога → Ximilar Collection | ✅ Развёрнут |
-| H12 | **ximilar-gw** | 10.1.0.12 | 89.167.99.162 | CX23 | Ximilar Gateway (/detect, /tag, /search) | ✅ Развёрнут |
+| H11 | **ximilar-sync** | 10.1.0.11 | 89.167.93.187 | CX23 | Синхронизация каталога → Ximilar Collection (🔄 v5.1: 2 фото/SKU, index_scope) | ✅ Развёрнут |
+| H12 | **ximilar-gw** | 10.1.0.12 | 89.167.99.162 | CX23 | Ximilar Gateway (/detect, /tag, /search 🔄 v5.1: dual retrieval pgvector+Ximilar) | ✅ Развёрнут |
 | H13 | **llm-reranker** | 10.1.0.13 | 89.167.106.167 | CX23 | LLM Reranker (Gemini visual comparison) | ✅ Развёрнут |
 | H14 | **staging-db** | 10.1.0.8 | 89.167.91.76 | CPX22 | PostgreSQL staging + PgBouncer | ✅ Развёрнут |
 | H15 | **shard-replica-0** | 10.1.1.10 | — | Dedicated (Xeon, 64 GB, NVMe) | Hot standby replica шарда 0 (Patroni, LUKS) | ✅ Развёрнут |
 | H16 | **etcd-2** | 10.1.0.17 | 65.109.162.92 | CX23 | etcd quorum node 2 | ✅ Развёрнут |
 | H17 | **etcd-3** | 10.1.0.15 | 89.167.98.219 | CX23 | etcd quorum node 3 (tiebreaker) | ✅ Развёрнут |
+| H20 | **embedder** | 10.1.0.15 | 89.167.98.219 | Dedicated (i7-8700, 64 GB, 2×NVMe) | 🔄 v5.1: FashionCLIP 2.0 ONNX runtime inference (`POST /embed`) | 🆕 Создать |
+| H21 | **embed-batch** | 10.1.0.17 | 65.109.162.92 | Dedicated (i7-8700, 64 GB, 2×SSD) | 🔄 v5.1: Фоновая batch-индексация каталога → pgvector (`POST /embed_batch`) | 🆕 Создать |
 | H18 | **posthog** | 10.1.1.30 | 95.216.39.182 | Dedicated (Xeon, 64 GB, SATA) | PostHog self-hosted: product analytics | ✅ Развёрнут |
 | H19 | **monitoring** | 10.1.0.7 | 89.167.83.72 | CX33 | Prometheus + Grafana + Alertmanager | ✅ Развёрнут |
 | — | **Object Storage** | hel1.your-objectstorage.com | — | S3-compatible | unde-images, unde-user-media, unde-shard-backups | ✅ Создан |
@@ -194,10 +201,10 @@
 |------|-----------|
 | **→ Вы здесь** | Принципы, архитектурная диаграмма, карта серверов |
 | [01_Catalog_Pipeline.md](01_Catalog_Pipeline.md) | Scraper, Apify, Photo Downloader, Ximilar Sync, Collage, Staging DB, Object Storage |
-| [02_Recognition_Pipeline.md](02_Recognition_Pipeline.md) | Recognition Orchestrator, Ximilar Gateway, LLM Reranker |
+| [02_Recognition_Pipeline.md](02_Recognition_Pipeline.md) | Recognition Orchestrator, Ximilar Gateway, LLM Reranker, Embedder (🔄 v5.1: dual retrieval, availability filter) |
 | [03_Dialogue_Pipeline.md](03_Dialogue_Pipeline.md) | Mood Agent, Voice Server, LLM Orchestrator, Context Agent, Persona Agent |
 | [04_Local_User_Data_Shards.md](04_Local_User_Data_Shards.md) | Local Shards: схема БД, репликация, шардирование, бэкапы |
-| [05_Data_Flow.md](05_Data_Flow.md) | Диаграммы потоков данных (7 сценариев) |
+| [05_Data_Flow.md](05_Data_Flow.md) | Диаграммы потоков данных (8 сценариев, 🔄 v5.1: Embedding Batch Indexing) |
 | [06_Operations.md](06_Operations.md) | Расписание, мониторинг, деплой, безопасность |
 | [07_Server_Layout_v7.md](07_Server_Layout_v7.md) | Карта серверов v7.2, стоимость, WireGuard, failover, PostHog, мониторинг |
 | [UNDE_Knowledge_Staging_Pipeline.md](../UNDE_Knowledge_Staging_Pipeline.md) | Epistemic Contract, pipeline извлечения знаний, instant/batch extraction, supersede, correction loop, privacy guard, enrichment TTL |
